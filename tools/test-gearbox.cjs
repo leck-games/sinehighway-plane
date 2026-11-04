@@ -27,7 +27,7 @@ const sim = (...a) => execFileSync(process.execPath, [path.join(__dirname, 'gear
   ok((await P.evaluate(() => __st.gearbox)) === 'Auto' && !(await P.evaluate(() => __st.veh.manual)), 'default GEARBOX = Auto');
   const row = await P.evaluate(() => { document.getElementById('tMenu').onclick(); document.querySelector('#mTabs .mtab[data-tab="hud"]') && document.querySelector('#mTabs .mtab[data-tab="hud"]').click(); const r = [...document.querySelectorAll('#mHud .mrow')].find(r => r.firstChild && r.firstChild.textContent === 'GEARBOX'); if (!r) return null; const b = [...r.querySelectorAll('button')].find(b => b.textContent === 'MANUAL'); b.click(); const out = [...r.querySelectorAll('button')].map(b => b.textContent).join('/'); document.getElementById('mnClose').onclick(); return out; });
   ok(row === 'AUTO/MANUAL', 'CONTROLS & HUD tab has the GEARBOX [Auto | Manual] row: ' + row);
-  ok((await P.evaluate(() => localStorage.getItem('srroute_gearbox'))) === 'Manual', 'choice saved to localStorage (srroute_gearbox)');
+  ok((await P.evaluate(() => localStorage.getItem('shplane_gearbox'))) === 'Manual', 'choice saved to localStorage (shplane_gearbox)');
   await open(h, 'q=low&dyn=0&wx=clear&tod=0.42');
   ok(await P.evaluate(() => __st.gearbox === 'Manual' && __st.veh.manual === true), 'MANUAL persists across a reload');
   const touch = (type, y) => P.evaluate((type, y) => { const el = document.getElementById('bGas'), r = el.getBoundingClientRect(), x = r.left + r.width / 2 || 700;
@@ -48,7 +48,7 @@ const sim = (...a) => execFileSync(process.execPath, [path.join(__dirname, 'gear
   const fl = await P.evaluate(() => new Promise(res => { __st.manualShift(1); requestAnimationFrame(() => res(document.getElementById('gauge').toDataURL().length)); }));
   ok(fl > 1000, 'HUD gauge redrawn after a manual shift (gear flash)');
   // AUTO again: same pedal swipe does nothing, the box shifts by itself
-  await P.evaluate(() => { __st.setGearbox('Auto'); __st.respawn ? __st.respawn() : 0; }); ok((await P.evaluate(() => localStorage.getItem('srroute_gearbox'))) === 'Auto', 'back to Auto (saved)');
+  await P.evaluate(() => { __st.setGearbox('Auto'); __st.respawn ? __st.respawn() : 0; }); ok((await P.evaluate(() => localStorage.getItem('shplane_gearbox'))) === 'Auto', 'back to Auto (saved)');
   await P.evaluate(() => { __st.veh.gear = 1; }); await touch('touchstart', 300); await touch('touchmove', 250); const d0 = await st();
   await new Promise(r => setTimeout(r, 6000)); const d = await st(); await touch('touchend', 250);
   ok(d0.g === 1 && d.g >= 2 && !(await P.evaluate(() => __st.veh.manual)), `AUTO: swipe ignored (gear ${d0.g}), auto upshifts on the held pedal → gear ${d.g} at ${d.v.toFixed(1)} m/s`);

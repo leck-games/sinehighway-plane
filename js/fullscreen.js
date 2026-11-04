@@ -20,8 +20,8 @@ export function initFullscreen({ btn, hint, storage = localStorage, win = window
     doc.body.classList.toggle('fs-pseudo', st.pseudo);
   }
   function showHint() {
-    if (!hint || storage.getItem('srroute_fshint')) return;
-    storage.setItem('srroute_fshint', '1'); st.hintShown = true;
+    if (!hint || storage.getItem('shplane_fshint')) return;
+    storage.setItem('shplane_fshint', '1'); st.hintShown = true;
     hint.style.display = 'flex';
     const close = () => { hint.style.display = 'none'; };
     hint.onclick = close; setTimeout(close, 7000);

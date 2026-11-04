@@ -51,7 +51,7 @@ const vis = P => P.evaluate(() => getComputedStyle(document.getElementById('tFul
 
   const i = await launch(); const Q = i.page; await Q.evaluateOnNewDocument(MOCK('iphone'));
   await open(i, 'q=low&dyn=0&wx=clear&tod=0.42');
-  await Q.evaluate(() => localStorage.removeItem('srroute_fshint')); await open(i, 'q=low&dyn=0&wx=clear&tod=0.42');
+  await Q.evaluate(() => localStorage.removeItem('shplane_fshint')); await open(i, 'q=low&dyn=0&wx=clear&tod=0.42');
   ok((await vis(Q)) && !(await Q.evaluate(() => __st.FS.real)), 'iPhone Safari-like (no element Fullscreen API): button shown, real fullscreen unavailable');
   await Q.click('#tFull'); await new Promise(r => setTimeout(r, 200));
   const st = await Q.evaluate(() => ({ pseudo: __st.FS.st.pseudo, hint: getComputedStyle(document.getElementById('fsHint')).display, txt: document.getElementById('fsHint').textContent, cls: document.body.classList.contains('fs-pseudo') }));
@@ -61,7 +61,7 @@ const vis = P => P.evaluate(() => getComputedStyle(document.getElementById('tFul
   await Q.setViewport({ width: 844, height: 390 }); await new Promise(r => setTimeout(r, 300));
   ok(!(await Q.evaluate(() => __st.FS.st.pseudo)) && (await vis(Q)), 'portrait → pseudo mode off; landscape → button back');
   await Q.click('#tFull'); await new Promise(r => setTimeout(r, 200));
-  ok((await Q.evaluate(() => getComputedStyle(document.getElementById('fsHint')).display)) === 'none', 'hint shown only once (saved in srroute_fshint)');
+  ok((await Q.evaluate(() => getComputedStyle(document.getElementById('fsHint')).display)) === 'none', 'hint shown only once (saved in shplane_fshint)');
   await i.close();
   done();
 })().catch(e => { console.error(e); process.exit(1); });

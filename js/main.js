@@ -52,9 +52,9 @@ const QUAL = { Low: { pr: 1, post: true, fx: 1, sr: 200, hatch: 1.15, grass: 700
   Ultra: { pr: 3, post: true, fx: 1, sr: 380, hatch: 1, grass: 24000, trees: 2, rd: 2, det: 1, sh: 1024, farK: 1.12, farN: 128, nearN: 160 } };
 const Q_ORDER = ['Low', 'Med', 'High', 'Ultra'];
 const qArg = (QS.get('q') || '').toLowerCase(), qMap = { low: 'Low', med: 'Med', medium: 'Med', high: 'High', ultra: 'Ultra' };
-let qName = qMap[qArg] || localStorage.getItem('srroute_q3') || (isTouch ? 'Med' : 'High'); if (!QUAL[qName]) qName = isTouch ? 'Med' : 'High'; // default stays Med on phones (iPhone 12 safe)
+let qName = qMap[qArg] || localStorage.getItem('shplane_q3') || (isTouch ? 'Med' : 'High'); if (!QUAL[qName]) qName = isTouch ? 'Med' : 'High'; // default stays Med on phones (iPhone 12 safe)
 const qLoad = qName; // grid sizes (draw distance) are fixed to the level chosen at load
-let qLocked = !!(qMap[qArg] || localStorage.getItem('srroute_q3')); // user choice: dyn-res never changes the level then
+let qLocked = !!(qMap[qArg] || localStorage.getItem('shplane_q3')); // user choice: dyn-res never changes the level then
 let mapOpen = false; const DYN = QS.get('dyn') !== '0'; let dynS = 1, lastSr = 0; // dynamic resolution scale 0.5..1
 const SMALL = isTouch || qName === 'Low'; // terrain grid sizes are fixed at load (phones: smaller grids)
 const scene = new THREE.Scene();
@@ -75,7 +75,7 @@ function applyQuality() {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
 }
 addEventListener('resize', () => applyQuality());
-function setQual(n) { if (!QUAL[n]) return; qName = n; qLocked = true; dynS = 1; localStorage.setItem('srroute_q3', qName); applyQuality();
+function setQual(n) { if (!QUAL[n]) return; qName = n; qLocked = true; dynS = 1; localStorage.setItem('shplane_q3', qName); applyQuality();
   if ((QUAL[n].farN || 0) !== (QUAL[qLoad].farN || 0) && typeof msg === 'function') msg('GFX ' + n.toUpperCase() + (QUAL[n].farN > (QUAL[qLoad].farN || 0) ? ' · RELOAD FOR FULL DRAW DISTANCE' : '')); }
 function cycleQ() { setQual(Q_ORDER[(Q_ORDER.indexOf(qName) + 1) % Q_ORDER.length]); }
 let dynT = 0, dynFr = 0, slowN = 0;
@@ -141,8 +141,8 @@ function cellObj(ci, cj) { // ci,cj: global cell indices; cached objects hold LO
   cellCache.set(key, o); return o;
 }
 let scx = 1e9, scz = 1e9; const colliders = []; // solid rocks: x,z,r,key (r<0 = melted this scan)
-const rockGone = new Set(store.get('srr_rocks_gone', [])); // rocks melted by a harvester head stay gone (persisted; ☰ WORLD → REGROW restores)
-function meltRock(key) { rockGone.add(key); if (rockGone.size > 4000) rockGone.delete(rockGone.values().next().value); store.set('srr_rocks_gone', [...rockGone]); scx = 1e9; }
+const rockGone = new Set(store.get('shplane_rocks_gone', [])); // rocks melted by a harvester head stay gone (persisted; ☰ WORLD → REGROW restores)
+function meltRock(key) { rockGone.add(key); if (rockGone.size > 4000) rockGone.delete(rockGone.values().next().value); store.set('shplane_rocks_gone', [...rockGone]); scx = 1e9; }
 function updateScenery(px, pz) {
   const cx = Math.round(px / 28), cz = Math.round(pz / 28); if (cx === scx && cz === scz) return; scx = cx; scz = cz;
   rockM.forEach(m => m.count = 0); colliders.length = 0; const O = W.origin();
@@ -185,15 +185,15 @@ function collideRocks(s) { // circle push-out + bounce on the physics state (aft
 // ---------- vehicle (physics module rig) + visuals (vehicle module models, comic materials) ----------
 const rig = createRig({ THREE, world, emit: (t, d) => bus.emit(t, d) });
 // handling model (physics module): ARCADE (default, NFS-Carbon/Trackmania-style) or NORMAL (the previous model); ☰ HANDLING, HUD ARC/NRM, key H
-let hMode = ({ arcade: 'arcade', normal: 'normal' })[QS.get('handling') || localStorage.getItem('srroute_handling') || store.get('srroute_p_handling', 'arcade')] || 'arcade';
+let hMode = ({ arcade: 'arcade', normal: 'normal' })[QS.get('handling') || localStorage.getItem('shplane_handling') || store.get('shplane_p_handling', 'arcade')] || 'arcade';
 const carMat = objMat({ hatch: 0.5 }), flameMat = objMat({ unlit: true });
 const carRoot = new THREE.Group(); scene.add(carRoot);
 const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), decalMat(0x203040, true)); scene.add(shadow);
 let vis = null, flameOrig = null, veh = null, vDef = null;
 vshadow = createVehicleShadow(renderer, scene, (x, z) => T.groundAt(x, z));
-const assist = { stab: localStorage.getItem('srroute_stab') ? localStorage.getItem('srroute_stab') === '1' : isTouch, tc: localStorage.getItem('srroute_tc') !== '0' };
+const assist = { stab: localStorage.getItem('shplane_stab') ? localStorage.getItem('shplane_stab') === '1' : isTouch, tc: localStorage.getItem('shplane_tc') !== '0' };
 // GEARBOX: Auto (default) or Manual (☰ → CONTROLS & HUD). Manual: X / Z keys (Z = Y on QWERTZ), or swipe up / down on the gas pedal while holding it.
-let gbMode = ({ manual: 'Manual', auto: 'Auto' })[(QS.get('gearbox') || localStorage.getItem('srroute_gearbox') || 'auto').toLowerCase()] || 'Auto', gearFlash = 0;
+let gbMode = ({ manual: 'Manual', auto: 'Auto' })[(QS.get('gearbox') || localStorage.getItem('shplane_gearbox') || 'auto').toLowerCase()] || 'Auto', gearFlash = 0;
 const cmatCache = new Map();
 function comicify(root) { // attachments ship standard three.js materials: swap them for cached comic objMats (tint = their colour)
   root.traverse(o => {
@@ -203,7 +203,7 @@ function comicify(root) { // attachments ship standard three.js materials: swap 
     o.material = c;
   });
 }
-function loadAttach(id) { return store.get('srroute_p_attach_' + id, getVehicle(id).defaultAttachments || []); }
+function loadAttach(id) { return store.get('shplane_p_attach_' + id, getVehicle(id).defaultAttachments || []); }
 function useVehicle(id, attach) {
   id = getVehicle(id).id; const a = attach || loadAttach(id);
   if (vis) { vis.group.remove(rig.root); carRoot.remove(vis.group); if (flameOrig) vis.flame.material = flameOrig; vis.dispose(); }
@@ -211,14 +211,14 @@ function useVehicle(id, attach) {
   vis = buildVehicle(THREE, vDef, carMat); flameOrig = vis.flame.material; vis.flame.material = flameMat;
   vis.group.add(rig.root); carRoot.add(vis.group); comicify(rig.root);
   const d = veh.P.dims || [2, 1.5, 4.4]; shadow.userData.w = d[0] * 1.5; shadow.userData.l = d[2] * 1.05;
-  store.set('srroute_p_vehicle', id); store.set('srroute_p_attach_' + id, rig.attach); localStorage.setItem('srroute_veh', id);
+  store.set('shplane_p_vehicle', id); store.set('shplane_p_attach_' + id, rig.attach); localStorage.setItem('shplane_veh', id);
   return vDef;
 }
 function setVehicle(id) { if (id === vDef?.id) return; const x = veh.p.x, z = veh.p.z, yaw = PH.yawOf(veh); useVehicle(id); spawn(x, z, yaw); msg(vDef.name); }
-function setAttachments(ids) { rig.setAttachments(ids); comicify(rig.root); store.set('srroute_p_attach_' + vDef.id, rig.attach); return rig.attach; }
+function setAttachments(ids) { rig.setAttachments(ids); comicify(rig.root); store.set('shplane_p_attach_' + vDef.id, rig.attach); return rig.attach; }
 function spawn(x, z, yaw = 0) { T.setRef(-1e9); PH.spawn(veh, world, x, z, yaw); T.setRef(veh.p.y); lastGear = veh.gear; } // route spawns are always on the road (tunnel floors included)
 const fwdSpeed = () => veh.v.x * veh.fwd.x + veh.v.y * veh.fwd.y + veh.v.z * veh.fwd.z;
-{ let id = QS.get('car') || store.get('srroute_p_vehicle', null) || localStorage.getItem('srroute_veh') || DEFAULT_VEHICLE; if (!listVehicles().some(v => v.id === id)) id = DEFAULT_VEHICLE; useVehicle(id); rig.setMode(hMode); }
+{ let id = QS.get('car') || store.get('shplane_p_vehicle', null) || localStorage.getItem('shplane_veh') || DEFAULT_VEHICLE; if (!listVehicles().some(v => v.id === id)) id = DEFAULT_VEHICLE; useVehicle(id); rig.setMode(hMode); }
 // spawn on the right lane of the endless route (?s= metres along the route, default 600 m)
 const ROUTE_S0 = Math.max(0, +(QS.get('s') || 600));
 function lanePoint(s, d = 3) { const p = W.routePoint(s); return { x: p.x - p.tz * d, z: p.z + p.tx * d, yaw: Math.atan2(p.tx, p.tz), y: p.y }; }
@@ -274,7 +274,7 @@ function joyMove(e) { for (const t of e.changedTouches) if (t.identifier === joy
   const end = e => { for (const t of e.changedTouches) if (t.identifier === SW.id) SW.id = null; }; el.addEventListener('touchend', end); el.addEventListener('touchcancel', end);
 }
 function manualShift(dir) { if (gbMode !== 'Manual' || autoOn || !veh) return 0; const g = PH.shiftGear(veh, dir); if (g) gearFlash = 0.45; return g; }
-function setGearbox(m) { gbMode = m === 'Manual' ? 'Manual' : 'Auto'; localStorage.setItem('srroute_gearbox', gbMode); if (veh) veh.manual = gbMode === 'Manual' && !autoOn; msg('GEARBOX: ' + gbMode.toUpperCase()); }
+function setGearbox(m) { gbMode = m === 'Manual' ? 'Manual' : 'Auto'; localStorage.setItem('shplane_gearbox', gbMode); if (veh) veh.manual = gbMode === 'Manual' && !autoOn; msg('GEARBOX: ' + gbMode.toUpperCase()); }
 $('tTilt').onclick = async () => {
   if (!tilt && typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) { try { if (await DeviceOrientationEvent.requestPermission() !== 'granted') return; } catch (e) { return; } }
   tilt = !tilt; msg('TILT STEERING ' + (tilt ? 'ON' : 'OFF')); if (audio) quickLabels();
@@ -370,8 +370,8 @@ const labelsEl = $('labels'), hpLabs = [], recentHit = new Map(); const MAXLAB =
 for (let i = 0; i < MAXLAB; i++) { const d = document.createElement('div'); d.className = 'hp'; d.innerHTML = '<div class="segs"><div class="seg"><i></i></div><div class="seg"><i></i></div><div class="seg"><i></i></div></div><span></span>'; d.style.display = 'none'; labelsEl.appendChild(d); hpLabs.push(d); }
 const pv = new THREE.Vector3();
 function project(x, y, z) { pv.set(x, y, z).project(camera); if (pv.z > 1 || pv.z < -1) return null; return [(pv.x * 0.5 + 0.5) * innerWidth, (-pv.y * 0.5 + 0.5) * innerHeight]; }
-let labT = 0, labTrees = []; let treeHpOn = localStorage.getItem('srroute_treehp') === 'on'; // tree HP hidden by default; toggle in ☰ → CONTROLS
-function setTreeHp(on) { treeHpOn = !!on; localStorage.setItem('srroute_treehp', on ? 'on' : 'off'); if (!on) for (const d of hpLabs) d.style.display = 'none'; }
+let labT = 0, labTrees = []; let treeHpOn = localStorage.getItem('shplane_treehp') === 'on'; // tree HP hidden by default; toggle in ☰ → CONTROLS
+function setTreeHp(on) { treeHpOn = !!on; localStorage.setItem('shplane_treehp', on ? 'on' : 'off'); if (!on) for (const d of hpLabs) d.style.display = 'none'; }
 function updateLabels(dt) {
   if (!treeHpOn) return;
   labT -= dt; const now = performance.now();
@@ -411,10 +411,10 @@ const surfIdx = s => typeof s === 'object' && s ? (s.si ?? 2) : Math.max(0, W.SU
 // ---------- day/night + weather: ONE system (terrain weather owns sky, rain, wet ground, lightning, uFar/uNight/uRain).
 // The game only adds its fog/dust overlay on top (no second rain), and maps its menu / ?wx= / ?tod= onto T.setRain / T.setTimeOfDay.
 const TIMES = { Day: 0.4, Sunset: 0.715, Night: 0.97 };
-let timeMode = localStorage.getItem('srroute_time') || 'Auto', tod = +(QS.get('tod') || 0.36); if (QS.get('tod')) timeMode = 'Fixed';
+let timeMode = localStorage.getItem('shplane_time') || 'Auto', tod = +(QS.get('tod') || 0.36); if (QS.get('tod')) timeMode = 'Fixed';
 const WXP = { fog: { far: 0.34, grip: 0.96, dark: 0.85, hz: new THREE.Color(0xc9d0d6) }, dust: { far: 0.3, grip: 0.9, dark: 0.82, hz: new THREE.Color(0xd99a5c) } };
 const WX_MODES = ['Auto', 'clear', 'rain', 'storm', 'fog', 'dust'];
-let wxMode = QS.get('wx') || localStorage.getItem('srroute_wx') || 'Auto'; if (!WX_MODES.includes(wxMode)) wxMode = 'Auto';
+let wxMode = QS.get('wx') || localStorage.getItem('shplane_wx') || 'Auto'; if (!WX_MODES.includes(wxMode)) wxMode = 'Auto';
 const wx = { fog: 0, dust: 0 }; if (WXP[wxMode]) wx[wxMode] = 1;
 function applyTime() { if (timeMode === 'Auto') T.setTimeOfDay(tod, true); else T.setTimeOfDay(TIMES[timeMode] ?? tod, false); }
 function applyWx() { T.setRain(wxMode === 'Auto' ? 'auto' : wxMode === 'rain' ? 'on' : wxMode === 'storm' ? 'storm' : 'off'); }
@@ -430,7 +430,7 @@ const SKY_P = { FUEL: { h: 0xf4dcb4, hk: 0.4, z: 0x3b7fd0, zk: 0.3, haze: 0.8, f
   Clear: { haze: 0.3, far: 1, cir: 0.5 },
   Hazy: { h: 0xeee3cc, hk: 0.55, z: 0x86a9cc, zk: 0.5, haze: 1, far: 0.7, cir: 0.25 },
   Golden: { h: 0xffbf86, hk: 0.55, z: 0x5a70bc, zk: 0.35, haze: 0.9, far: 0.88, cir: 1, sun: 0xff9a48, sk: 0.45, l: [1.06, 0.94, 0.8] } };
-let skyMode = QS.get('sky') || localStorage.getItem('srroute_sky') || 'FUEL'; if (!SKY_P[skyMode]) skyMode = 'FUEL';
+let skyMode = QS.get('sky') || localStorage.getItem('shplane_sky') || 'FUEL'; if (!SKY_P[skyMode]) skyMode = 'FUEL';
 const skyC = {}; for (const k in SKY_P) { const P = SKY_P[k]; skyC[k] = { h: P.h != null ? new THREE.Color(P.h) : null, z: P.z != null ? new THREE.Color(P.z) : null, sun: P.sun != null ? new THREE.Color(P.sun) : null }; }
 function skyGrade() { const P = SKY_P[skyMode], C = skyC[skyMode], d = 1 - U.uNight.value;
   if (C.h) U.uHorizon.value.lerp(C.h, P.hk * d); if (C.z) U.uZenith.value.lerp(C.z, P.zk * d); if (C.sun) U.uSunCol.value.lerp(C.sun, P.sk * d);
@@ -472,8 +472,8 @@ function buildMenu() {
   if (veh.cargo.capacity > 0) acts.push(['UNLOAD LOGS (' + veh.cargo.logs + ')', () => rig.unload()]);
   actRow(d, 'CAR', acts); d.appendChild(mk('div', 'msec', 'HANDLING & ASSISTS'));
   segRows(d, [['HANDLING', ['Arcade', 'Normal'], () => hMode === 'arcade' ? 'Arcade' : 'Normal', v => setHandling(v.toLowerCase())],
-    ['STABILITY ASSIST', ['On', 'Off'], () => assist.stab ? 'On' : 'Off', v => { assist.stab = veh.assist.stab = v === 'On'; localStorage.setItem('srroute_stab', assist.stab ? '1' : '0'); }],
-    ['TRACTION CONTROL', ['On', 'Off'], () => assist.tc ? 'On' : 'Off', v => { assist.tc = veh.assist.tc = v === 'On'; localStorage.setItem('srroute_tc', assist.tc ? '1' : '0'); }]]);
+    ['STABILITY ASSIST', ['On', 'Off'], () => assist.stab ? 'On' : 'Off', v => { assist.stab = veh.assist.stab = v === 'On'; localStorage.setItem('shplane_stab', assist.stab ? '1' : '0'); }],
+    ['TRACTION CONTROL', ['On', 'Off'], () => assist.tc ? 'On' : 'Off', v => { assist.tc = veh.assist.tc = v === 'On'; localStorage.setItem('shplane_tc', assist.tc ? '1' : '0'); }]]);
   d.appendChild(mk('div', 'msec', 'ROUTE'));
   { const g = W.segmentAt(sCur), n = W.nextBiome(sCur); d.appendChild(mk('div', 'mnote', `${(odo / 1000).toFixed(1)} km driven · route km ${(sCur / 1000).toFixed(1)} · ${g.title} → ${n.title} in ${((n.s - sCur) / 1000).toFixed(1)} km · seed ${W.SEED} (?seed=)`)); }
   d.appendChild(mk('div', 'msec', 'STATUS'));
@@ -495,12 +495,12 @@ function buildMenu() {
   hu.appendChild(mk('div', 'mnote', 'WASD/arrows · Space drift · Shift boost · R reset to road · X / Z gear up / down (manual) · O autopilot · H handling · V next vehicle · G graphics · F FPS · I HUD mode · U edit HUD · Shift+U unload.'));
   // WORLD
   const w = $('mWorld'); w.innerHTML = '';
-  segRows(w, [['TIME OF DAY', ['Auto', 'Day', 'Sunset', 'Night'], () => timeMode, v => { timeMode = v; localStorage.setItem('srroute_time', v); applyTime(); }],
-    ['WEATHER', WX_MODES, () => wxMode, v => { wxMode = v; localStorage.setItem('srroute_wx', v); applyWx(); }]]);
+  segRows(w, [['TIME OF DAY', ['Auto', 'Day', 'Sunset', 'Night'], () => timeMode, v => { timeMode = v; localStorage.setItem('shplane_time', v); applyTime(); }],
+    ['WEATHER', WX_MODES, () => wxMode, v => { wxMode = v; localStorage.setItem('shplane_wx', v); applyWx(); }]]);
   { const r = mk('div', 'mrow'); r.appendChild(mk('span', '', 'SKY')); const se = document.createElement('select'); se.id = 'mSky'; se.className = 'msel';
     for (const k in SKY_P) { const o = document.createElement('option'); o.value = k; o.textContent = k.toUpperCase(); se.appendChild(o); } se.value = skyMode;
-    se.onchange = () => { skyMode = se.value; localStorage.setItem('srroute_sky', skyMode); }; r.appendChild(se); w.appendChild(r); }
-  actRow(w, 'SCENERY', [['🌲 REGROW TREES & ROCKS', () => { T.resetTrees(); props.clearTrees(); hpMap.clear(); rockGone.clear(); store.set('srr_rocks_gone', []); scx = 1e9; msg('SCENERY REGROWN'); }], ['🔥 PUT OUT FIRES', () => { T.extinguishAll(); }]]);
+    se.onchange = () => { skyMode = se.value; localStorage.setItem('shplane_sky', skyMode); }; r.appendChild(se); w.appendChild(r); }
+  actRow(w, 'SCENERY', [['🌲 REGROW TREES & ROCKS', () => { T.resetTrees(); props.clearTrees(); hpMap.clear(); rockGone.clear(); store.set('shplane_rocks_gone', []); scx = 1e9; msg('SCENERY REGROWN'); }], ['🔥 PUT OUT FIRES', () => { T.extinguishAll(); }]]);
 }
 function showTab(t) { if (!TABS[t]) t = 'drive'; mTab = t;
   document.querySelectorAll('#mTabs .mtab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
@@ -547,11 +547,11 @@ addEventListener('keydown', e => { if (e.target && /INPUT|TEXTAREA|SELECT/.test(
   if (e.code === 'KeyV') { const l = listVehicles(), i = l.findIndex(v => v.id === vDef.id); setVehicle(l[(i + 1) % l.length].id); }
   if (e.code === 'KeyU') { if (e.shiftKey) rig.unload(); else uied.openEd(); } /* U = EDIT UI (unload: Shift+U) */ if (e.code === 'KeyH') setHandling(hMode === 'arcade' ? 'normal' : 'arcade'); if (e.code === 'KeyI') cycleUi(); });
 // ---------- HUD toggles: handling ARC/NRM, UI hide (FULL → MINIMAL → NONE), unload (only with logs) ----------
-function setHandling(m) { hMode = m === 'normal' ? 'normal' : 'arcade'; rig.setMode(hMode); localStorage.setItem('srroute_handling', hMode); store.set('srroute_p_handling', hMode);
+function setHandling(m) { hMode = m === 'normal' ? 'normal' : 'arcade'; rig.setMode(hMode); localStorage.setItem('shplane_handling', hMode); store.set('shplane_p_handling', hMode);
   $('tHand').classList.toggle('nrm', hMode === 'normal'); steerSm = 0; if (typeof quickLabels === 'function' && audio) quickLabels(); return hMode; }
 let uied = null; // layout editor (created below, after the sound editor)
-const UI_MODES = ['full', 'minimal', 'none']; let uiMode = UI_MODES.includes(localStorage.getItem('srroute_ui')) ? localStorage.getItem('srroute_ui') : 'full', unlShown = null;
-function setUi(m) { uiMode = UI_MODES.includes(m) ? m : 'full'; localStorage.setItem('srroute_ui', uiMode); document.body.classList.toggle('ui-min', uiMode === 'minimal'); document.body.classList.toggle('ui-none', uiMode === 'none');
+const UI_MODES = ['full', 'minimal', 'none']; let uiMode = UI_MODES.includes(localStorage.getItem('shplane_ui')) ? localStorage.getItem('shplane_ui') : 'full', unlShown = null;
+function setUi(m) { uiMode = UI_MODES.includes(m) ? m : 'full'; localStorage.setItem('shplane_ui', uiMode); document.body.classList.toggle('ui-min', uiMode === 'minimal'); document.body.classList.toggle('ui-none', uiMode === 'none');
   $('tUi').title = 'HUD: ' + uiMode.toUpperCase() + ' (I)'; if (audio) quickLabels(); if (uied) uied.applyAll(); return uiMode; }
 function cycleUi() { return setUi(UI_MODES[(UI_MODES.indexOf(uiMode) + 1) % 3]); }
 $('tUi').onclick = () => { cycleUi(); msg('HUD ' + uiMode.toUpperCase()); }; $('tHand').onclick = () => { setHandling(hMode === 'arcade' ? 'normal' : 'arcade'); msg(hMode.toUpperCase() + ' HANDLING'); };
