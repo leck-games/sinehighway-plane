@@ -7,7 +7,7 @@ Every SineHighway feature (gearbox, manual gears, fullscreen, autopilot, biomes,
 
 ## Planes
 - **P** toggles car / plane; **V** picks the next plane. In the menu, the VEHICLE tab has **CARS / PLANES** sub-tabs.
-- Planes (ported from Sine Rally UI) take off from the road: the road is the runway. Arcade or sim handling, touch stick + throttle slider + rudder, keyboard (W/S throttle, arrows pitch/roll, Q/E rudder, Space brake, Shift boost).
+- Planes (ported from Sine Rally UI) take off from the road: the road is the runway. Arcade or sim handling, touch stick + throttle slider + rudder, keyboard (W/S throttle, A/D or ←/→ roll, ↑ nose down / ↓ nose up, Q/E rudder, Space wheel brake, Shift boost).
 - Landing on the road (or any flat ground) counts. A crash resets you onto the road after about 2.6 s. The flight camera, aero/engine sound and attitude HUD are included.
 - The world is flyable on both sides of the route. Terrain beyond 1.2 km from the road is soft-capped (`latL` in world.js) so mountains stay sane. At about 9 km from the route a haze thickens and an "EDGE OF THE MAP" warning appears at 11 km.
 
