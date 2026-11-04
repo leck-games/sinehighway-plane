@@ -26,6 +26,9 @@ import { melts } from './phys/attachments/index.js';
 import { createProps } from './props.js'; // SineHighway: delineators, mile markers, biome signs, diners / gas stations
 let audio = null; // engine sound host (created after the telemetry block)
 import { createVehicleShadow } from './vshadow.js';
+import { PLANES, getPlane, buildPlane, createPlaneState, spawnRunway, spawnAir, stepPlane } from './plane.js'; // PLANE EDITION: flyable planes
+import { openPlaneSelector } from './plane-select.js';
+import { createFarLod } from './terrain/farlod.js'; // PLANE EDITION: far-terrain LOD rings
 const { WATER, hash2, sample, surfaceOf, colourOf, normal, height, ground } = W;
 const $ = id => document.getElementById(id);
 const QS = new URLSearchParams(location.search);
@@ -58,7 +61,7 @@ let qLocked = !!(qMap[qArg] || localStorage.getItem('shplane_q3')); // user choi
 let mapOpen = false; const DYN = QS.get('dyn') !== '0'; let dynS = 1, lastSr = 0; // dynamic resolution scale 0.5..1
 const SMALL = isTouch || qName === 'Low'; // terrain grid sizes are fixed at load (phones: smaller grids)
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.4, 1700 * (qName === 'Ultra' ? 1.3 : qName === 'High' ? 1.12 : 1)); const CAM_FAR = camera.far;
+const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.4, 1700 * (qName === 'Ultra' ? 1.3 : qName === 'High' ? 1.12 : 1)); const CAM_FAR = camera.far, CAM_NEAR = camera.near;
 const depthTex = new THREE.DepthTexture(1, 1); depthTex.type = THREE.UnsignedIntType;
 const rt = new THREE.WebGLRenderTarget(1, 1, { depthTexture: depthTex, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true });
 const post = postMat(); post.uniforms.tCol.value = rt.texture; post.uniforms.tDep.value = depthTex; post.uniforms.uN.value = camera.near; post.uniforms.uF.value = camera.far;
@@ -93,6 +96,7 @@ const T = createTerrain({ bus: { emit: (t, d) => bus.emit(t, d) }, small: SMALL,
   farN: QUAL[qName].farN && !(isTouch && qName === 'High') ? QUAL[qName].farN : undefined, nearN: QUAL[qName].nearN,
   treeNearR: new URLSearchParams(location.search).get('treelod') === 'mesh' ? undefined : 0 }); // trees: the comic impostor LOD at every distance (no high-poly near meshes); ?treelod=mesh = old near meshes
 const tMeshes = T.setup(scene) || [];
+const FL = createFarLod(scene, T.ground, { Low: 0, Med: 1, High: 2, Ultra: 3 }[qName] ?? 1); FL.setVisible(false); // far LOD: built at load, shown while flying
 const grassMesh = tMeshes.find(m => m && m.geometry && m.geometry.attributes && m.geometry.attributes.off) || null;
 const SO = { h: 0, hn: 0, deck: 0, road: 0, rtype: 0, dom: 0, riv: 0, rd: 0 }, nv = [0, 0, 0], cv = [0, 0, 0];
 const Mx = new THREE.Matrix4(), Qt = new THREE.Quaternion(), Vt = new THREE.Vector3(), St = new THREE.Vector3(), Et = new THREE.Euler(), Cc = new THREE.Color();
@@ -187,6 +191,7 @@ const rig = createRig({ THREE, world, emit: (t, d) => bus.emit(t, d) });
 // handling model (physics module): ARCADE (default, NFS-Carbon/Trackmania-style) or NORMAL (the previous model); ☰ HANDLING, HUD ARC/NRM, key H
 let hMode = ({ arcade: 'arcade', normal: 'normal' })[QS.get('handling') || localStorage.getItem('shplane_handling') || store.get('shplane_p_handling', 'arcade')] || 'arcade';
 const carMat = objMat({ hatch: 0.5 }), flameMat = objMat({ unlit: true });
+const planeMat = objMat({ hatch: 0.18 }); // planes: light hatching so a backlit plane still reads as its colours
 const carRoot = new THREE.Group(); scene.add(carRoot);
 const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), decalMat(0x203040, true)); scene.add(shadow);
 let vis = null, flameOrig = null, veh = null, vDef = null;
@@ -248,7 +253,7 @@ function skid(w, x, y, z, rx, rz, on) {
 // ---------- input ----------
 const key = {}; addEventListener('keydown', e => { key[e.code] = 1; if (uied && uied.open) return; if (e.code === 'KeyR') reset(); if (e.code === 'KeyF') toggleDbg(); if (!e.repeat && e.code === 'KeyX') manualShift(1); if (!e.repeat && e.code === 'KeyZ') manualShift(-1); if (e.code === 'KeyG') cycleQ(); });
 addEventListener('keyup', e => key[e.code] = 0);
-const touch = { steer: 0, pitch: 0, gas: 0, brk: 0, bst: 0, drf: 0 }; let tilt = false, tiltSteer = 0;
+const touch = { steer: 0, pitch: 0, gas: 0, brk: 0, bst: 0, drf: 0, rl: 0, rr: 0 }; let tilt = false, tiltSteer = 0;
 if (isTouch) { $('joy').style.display = 'block'; ['bGas', 'bBrk', 'bBst', 'bDrf'].forEach(b => $(b).style.display = 'flex'); }
 const joy = $('joy'), knob = $('knob'); let joyId = null;
 joy.addEventListener('touchstart', e => { joyId = e.changedTouches[0].identifier; joyMove(e); e.preventDefault(); }, { passive: false });
@@ -273,7 +278,7 @@ function joyMove(e) { for (const t of e.changedTouches) if (t.identifier === joy
   } e.preventDefault(); }, { passive: false });
   const end = e => { for (const t of e.changedTouches) if (t.identifier === SW.id) SW.id = null; }; el.addEventListener('touchend', end); el.addEventListener('touchcancel', end);
 }
-function manualShift(dir) { if (gbMode !== 'Manual' || autoOn || !veh) return 0; const g = PH.shiftGear(veh, dir); if (g) gearFlash = 0.45; return g; }
+function manualShift(dir) { if (gbMode !== 'Manual' || autoOn || craft === 'plane' || !veh) return 0; const g = PH.shiftGear(veh, dir); if (g) gearFlash = 0.45; return g; }
 function setGearbox(m) { gbMode = m === 'Manual' ? 'Manual' : 'Auto'; localStorage.setItem('shplane_gearbox', gbMode); if (veh) veh.manual = gbMode === 'Manual' && !autoOn; msg('GEARBOX: ' + gbMode.toUpperCase()); }
 $('tTilt').onclick = async () => {
   if (!tilt && typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) { try { if (await DeviceOrientationEvent.requestPermission() !== 'granted') return; } catch (e) { return; } }
@@ -282,7 +287,7 @@ $('tTilt').onclick = async () => {
 addEventListener('deviceorientation', e => { const a = (screen.orientation && screen.orientation.angle) || window.orientation || 0; const v = a === 90 ? e.beta : a === -90 || a === 270 ? -e.beta : e.gamma; tiltSteer = Math.max(-1, Math.min(1, (v || 0) / 25)); });
 $('tReset').onclick = () => reset(); $('tDbg').onclick = () => toggleDbg(); $('tQ').onclick = () => cycleQ();
 let dbg = QS.has('dbg'); function toggleDbg() { dbg = !dbg; if (!dbg) $('dbg').textContent = ''; if (audio) quickLabels(); }
-function reset() { if (editor.benching) return; const s = Math.max(0, W.project(veh.p.x, veh.p.z).s), p = lanePoint(s); spawn(p.x, p.z, p.yaw); msg('BACK ON ROUTE 66'); } // snap to the right lane, facing along the route
+function reset() { if (editor.benching) return; if (craft === 'plane') { planeToRunway(); return; } const s = Math.max(0, W.project(veh.p.x, veh.p.z).s), p = lanePoint(s); spawn(p.x, p.z, p.yaw); msg('BACK ON ROUTE 66'); } // snap to the right lane, facing along the route
 const inp = { gas: 0, brake: 0, steer: 0, hand: 0, boost: 0, pitch: 0 };
 const auto = QS.get('auto'); // test driver: ?auto=1|drift|boost drives itself (headless tests / screenshots)
 let simT = 0, steerSm = 0;
@@ -342,6 +347,7 @@ function routeHud(dt) {
 // ---------- HUD gauge (comic ink): tacho arc, gear, rpm, surface + engine temperature bar (physics heat) ----------
 const gc = $('gauge').getContext('2d');
 function gauge() {
+  if (craft === 'plane') { planeGauge(); return; }
   const Wd = 200, Hd = 120, cx = 100, cy = 104, R = 82, P = veh.P; gc.clearRect(0, 0, Wd, Hd);
   const a0 = Math.PI * 0.95, a1 = Math.PI * 2.05, GM = P.redline + 1000, rf = Math.min(1, veh.rpm / GM), red = P.redline / GM;
   gc.lineCap = 'butt'; gc.lineWidth = 20; gc.strokeStyle = '#111'; gc.beginPath(); gc.arc(cx, cy, R, a0 - 0.03, a1 + 0.03); gc.stroke();
@@ -468,6 +474,9 @@ function actRow(el, title, acts) { el.appendChild(mk('div', 'msec', title)); con
 function buildMenu() {
   $('mtDrive').textContent = 'DRIVE';
   const d = $('mRows'); d.innerHTML = '';
+  if (craft === 'plane') { $('mtDrive').textContent = 'FLY'; actRow(d, 'FLIGHT', [['⟲ RESET TO ROAD (TAKEOFF)', () => { planeToRunway(); openMenu(false); }], ['AIR START', () => { planeAirStart(); openMenu(false); }], ['🚗 DRIVE CAR', () => { setCraft('car'); }]]);
+    segRows(d, [['PITCH', ['Normal', 'Inverted'], () => pitchInv ? 'Inverted' : 'Normal', v => { pitchInv = v === 'Inverted'; localStorage.setItem('shplane_pinv', pitchInv ? '1' : '0'); }, 'Stick back = nose up (NORMAL). Plane: arcade or normal handling below.']]); }
+  else actRow(d, 'FLY', [['✈ FLY A PLANE (TAKE OFF FROM THE ROAD)', () => { setCraft('plane'); openMenu(false); }]]);
   const acts = [['⟲ RESET TO ROAD', () => { reset(); openMenu(false); }], ['🔧 REPAIR', () => { PH.repair(veh); msg('REPAIRED'); }], [autoOn ? '🤖 AUTOPILOT: ON' : '🤖 AUTOPILOT: OFF', () => setAuto(!autoOn)]];
   if (veh.cargo.capacity > 0) acts.push(['UNLOAD LOGS (' + veh.cargo.logs + ')', () => rig.unload()]);
   actRow(d, 'CAR', acts); d.appendChild(mk('div', 'msec', 'HANDLING & ASSISTS'));
@@ -492,7 +501,7 @@ function buildMenu() {
     ['TILT STEERING', ['Off', 'On'], () => tilt ? 'On' : 'Off', v => { if ((v === 'On') !== tilt) $('tTilt').onclick(); }],
     ['GEARBOX', ['Auto', 'Manual'], () => gbMode, v => setGearbox(v), 'MANUAL: swipe up / down on the gas pedal (keep holding it) or keys X / Z. Down from 1st at a stop = R. The autopilot always shifts by itself.']]);
   hu.appendChild(mk('div', 'msec', 'KEYBOARD'));
-  hu.appendChild(mk('div', 'mnote', 'WASD/arrows · Space drift · Shift boost · R reset to road · X / Z gear up / down (manual) · O autopilot · H handling · V next vehicle · G graphics · F FPS · I HUD mode · U edit HUD · Shift+U unload.'));
+  hu.appendChild(mk('div', 'mnote', 'Car: WASD/arrows · Space drift · Shift boost · R reset to road · X / Z gear up / down (manual) · O autopilot · H handling · V next vehicle · P plane / car · G graphics · F FPS · I HUD mode · U edit HUD · Shift+U unload. Plane: W/S throttle · A/D or ←/→ roll · ↑/↓ pitch · Q/E rudder · Space wheel brake · Shift afterburner · V next plane · R back to the road.'));
   // WORLD
   const w = $('mWorld'); w.innerHTML = '';
   segRows(w, [['TIME OF DAY', ['Auto', 'Day', 'Sunset', 'Night'], () => timeMode, v => { timeMode = v; localStorage.setItem('shplane_time', v); applyTime(); }],
@@ -510,14 +519,17 @@ function showTab(t) { if (!TABS[t]) t = 'drive'; mTab = t;
 document.querySelectorAll('#mTabs .mtab').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 let vSub = null; // VEHICLE → CARS sub-menu: null | 'power'
 let vTab = null; // VEHICLE tab: 'car' | 'plane' (defaults to the current craft)
-function vehRow() { // VEHICLE: CARS (physics module's selector) + ⚙ ENGINE / POWER, a second small WebGL canvas closed with the menu
+function vehRow() { // VEHICLE: CARS (physics module's selector) / PLANES (plane selector), each a second small WebGL canvas closed with the menu
   const mv = $('mVeh'); if (selector) { selector.close(); selector = null; }
-  mv.innerHTML = '';
-  if (vSub === 'power') { $('mAtt').innerHTML = ''; // ⚙ ENGINE / POWER sub-panel (‹ BACK returns to the car list)
+  const tab = vTab || craft; mv.innerHTML = '';
+  if (tab === 'car' && vSub === 'power') { $('mAtt').innerHTML = ''; // ⚙ ENGINE / POWER sub-panel (‹ BACK returns to the car list)
     openPowerPanel({ container: mv, def: vDef, getState: () => rig.state, onChange: c => { PWR.apply(rig.state, vDef, c); }, onBack: () => { vSub = null; vehRow(); } }); $('mPanes').scrollTop = 0; return; }
-  const box = document.createElement('div'); mv.appendChild(box);
+  const h = mk('div', 'mrow');
+  for (const [k, t] of [['car', '🚗 CARS'], ['plane', '✈ PLANES']]) { const b = mk('button', 'sb vtab mbig' + (tab === k ? ' sel' : ''), t); b.id = 'vt_' + k; b.onclick = () => { vTab = k; vehRow(); }; h.appendChild(b); }
+  mv.appendChild(h); const box = document.createElement('div'); mv.appendChild(box);
   const small = innerHeight < 500, size = small ? [200, 113] : [240, 136];
-  selector = openSelector({ THREE, container: box, current: vDef.id, size, onPick: id => { setVehicle(id); attRow(); buildMenu(); powRow(); } }); powRow(); attRow();
+  if (tab === 'plane') { $('mAtt').innerHTML = ''; selector = openPlaneSelector({ container: box, current: plDef ? plDef.id : (localStorage.getItem('shplane_plane') || 'cub'), size, onPick: id => { setCraft('plane', id); buildMenu(); } }); }
+  else { selector = openSelector({ THREE, container: box, current: vDef.id, size, onPick: id => { if (craft === 'plane') setCraft('car'); setVehicle(id); attRow(); buildMenu(); powRow(); } }); powRow(); attRow(); }
   function powRow() { let r = $('vPow'); if (!r) { r = mk('div', 'mrow'); r.id = 'vPow'; mv.appendChild(r); } r.innerHTML = '';
     const c = rig.state.__power ? rig.state.__power.cfg : null, hp = c ? c.hp : PWR.stockOf(rig.state.__stockP || rig.state.P).hp;
     const b = mk('button', 'sb mbig' + (c ? ' sel' : ''), `⚙ ENGINE / POWER · ${hp.toLocaleString('en-US')} hp${c ? '' : ' (stock)'} ▸`); b.id = 'vPowBtn'; b.onclick = () => { vSub = 'power'; vehRow(); }; r.appendChild(b); }
@@ -538,13 +550,14 @@ function quickLabels() { const L = (id, big, small, on) => { const e = $(id); e.
 $('tQuick').onclick = () => quick();
 addEventListener('pointerdown', e => { if (qOpen && !$('corner').contains(e.target)) quick(false); }, true);
 $('qtray').addEventListener('click', () => { qT = 8; setTimeout(quickLabels, 0); });
-function setAuto(on) { autoOn = !!on; if (!autoOn) { inp.gas = inp.brake = 0; inp.steer = 0; steerSm = 0; } msg('AUTOPILOT ' + (autoOn ? 'ON' : 'OFF')); if (audio) quickLabels(); }
+function setAuto(on) { if (on && craft === 'plane') { msg('AUTOPILOT: CARS ONLY'); return; } autoOn = !!on; if (!autoOn) { inp.gas = inp.brake = 0; inp.steer = 0; steerSm = 0; } msg('AUTOPILOT ' + (autoOn ? 'ON' : 'OFF')); if (audio) quickLabels(); }
 $('tAuto').onclick = () => setAuto(!autoOn);
 addEventListener('keydown', e => { if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
   if (e.code === 'Escape') { if (editor.open || uied.open) { editor.close(); uied.close(); } else openMenu(!menuOpen); quick(false); }
   if (uied && uied.open) { if (e.code === 'KeyU') uied.close(); return; } // layout editor open: game keys paused
   if (e.code === 'KeyO') setAuto(!autoOn);
-  if (e.code === 'KeyV') { const l = listVehicles(), i = l.findIndex(v => v.id === vDef.id); setVehicle(l[(i + 1) % l.length].id); }
+  if (e.code === 'KeyP' && !editorOpen()) { setCraft(craft === 'plane' ? 'car' : 'plane'); return; }
+  if (e.code === 'KeyV') { if (craft === 'plane') { const i = PLANES.findIndex(p => p.id === plDef.id); setCraft('plane', PLANES[(i + 1) % PLANES.length].id); } else { const l = listVehicles(), i = l.findIndex(v => v.id === vDef.id); setVehicle(l[(i + 1) % l.length].id); } }
   if (e.code === 'KeyU') { if (e.shiftKey) rig.unload(); else uied.openEd(); } /* U = EDIT UI (unload: Shift+U) */ if (e.code === 'KeyH') setHandling(hMode === 'arcade' ? 'normal' : 'arcade'); if (e.code === 'KeyI') cycleUi(); });
 // ---------- HUD toggles: handling ARC/NRM, UI hide (FULL → MINIMAL → NONE), unload (only with logs) ----------
 function setHandling(m) { hMode = m === 'normal' ? 'normal' : 'arcade'; rig.setMode(hMode); localStorage.setItem('shplane_handling', hMode); store.set('shplane_p_handling', hMode);
@@ -561,6 +574,7 @@ const TEL = { rpm: 0, idle: 0, redline: 0, throttle: 0, brake: 0, boost: false, 
   surface: 'grass', wheels: [0, 1, 2, 3].map(() => ({ contact: false, surface: 'grass', slipRatio: 0, slipAngle: 0, load: 0 })), vehicle: 'buggy', vehiclePreset: '', soundPreset: '', engineTemp: 70,
   temp: 70, overheat: false, limiter: false, damage: 0, mass: 0, logs: 0, capacity: 0, paused: false };
 function updateTelemetry() {
+  if (craft === 'plane') { planeTelemetry(); return; }
   PH.telemetry(veh, TEL); TEL.gears = veh.P.gears.length; TEL.vehicle = vDef.id; TEL.soundPreset = TEL.vehiclePreset = vDef.sound || ''; TEL.engineTemp = veh.heat.temp; TEL.paused = mapOpen || !!(uied && uied.open);
 }
 const roProxy = o => new Proxy(o, { set() { return false; }, get(t, k) { const v = t[k]; return v && typeof v === 'object' ? roProxy(v) : v; } });
@@ -576,32 +590,192 @@ $('tSnd').onclick = () => { if (!audio.running) { audio.unlock(); audio.setMuted
 
 if (isTouch) document.body.classList.add('touch');
 
+// ---------- PLANE EDITION: planes (js/plane.js, ported from SineRally UI). Take off from the road; craft = 'car' | 'plane' ----------
+let craft = 'car', pl = null, plDef = null, plVis = null, plAuto = null, lastTO = -9, pitchInv = localStorage.getItem('shplane_pinv') === '1';
+const pin = { pitch: 0, roll: 0, yaw: 0, thr: 0, brake: 0, boost: 0 }; let thrLever = 0, pRollSm = 0, pPitchSm = 0, pYawSm = 0;
+const plTrees = [], V_UP = new THREE.Vector3(0, 1, 0), camDir3 = new THREE.Vector3(0, 0, 1), camOff = new THREE.Vector3(0, 4, -14), camUpS = new THREE.Vector3(0, 1, 0), pTmp = new THREE.Vector3();
+const penv = { groundAt: (x, z) => T.groundAt(x, z), waterLevel: WATER, arcade: true, solids: props.solids,
+  trees: (x, z, r) => world.queryTrees(x, z, r, plTrees), treeTop: t => { const tr = T.getTree(t.id); return tr ? tr.height : 8; },
+  hitTree: t => { const y = T.groundAt(t.x, t.z); world.damageTree(t.id, 3, 'plane'); popText('SMASH!', t.x, y + 5, t.z, '#ffd23c'); burst(t.x, y, t.z, 14, [0.35, 0.62, 0.25], 5); },
+  emit: (t, d) => bus.emit(t, d) };
+const cur = () => craft === 'plane' ? pl : veh; // the active craft (position for streaming / rebase / route HUD)
+// the road IS the runway: a pseudo airfield on the route centreline at route metre s (heading along the route)
+function roadField(s) { s = Math.max(0, s); const p = W.routePoint(s); return { x: p.x, z: p.z, dx: p.tx, dz: p.tz, L: 25, s, name: 'ROUTE 66 · KM ' + (s / 1000).toFixed(1) }; }
+function snapCam() { camDir3.copy(pl.fwd); camDir.set(pl.fwd.x, 0, pl.fwd.z).normalize(); camOff.copy(pl.fwd).multiplyScalar(-(plDef.dims[2] + plDef.span * 0.35 + 3)); camOff.y += 1.8 + plDef.dims[2] * 0.3 + plDef.span * 0.12;
+  camPos.copy(pl.p).add(camOff); camUpS.copy(V_UP); camera.up.copy(V_UP); }
+function planeToRunway(s) {
+  if (craft !== 'plane') return; if (s == null) s = W.project(pl.p.x, pl.p.z).s;
+  const af = roadField(s); T.setRef(-1e9); spawnRunway(pl, af, 0, penv.groundAt); T.setRef(pl.p.y); thrLever = 0; pRollSm = pPitchSm = pYawSm = 0; snapCam(); rebase(); updateWorld(true); msg(plDef.name + ' · ' + af.name);
+}
+function planeAirStart(x, z, yaw) {
+  if (craft !== 'plane') return; x = x ?? pl.p.x; z = z ?? pl.p.z; yaw = yaw ?? Math.atan2(camDir.x, camDir.z);
+  let top = Math.max(WATER, T.groundAt(x, z)); for (let d = 100; d <= 1500; d += 100) top = Math.max(top, T.groundAt(x + Math.sin(yaw) * d, z + Math.cos(yaw) * d)); // clear the terrain ahead
+  spawnAir(pl, x, z, top + 160, yaw, plDef.vRef * 1.6); thrLever = 0.7; pRollSm = pPitchSm = pYawSm = 0; snapCam(); rebase(); updateWorld(true); msg('AIR START · ' + plDef.name);
+}
+function setCraft(c, id, how) {
+  if (c === 'plane') {
+    const def = getPlane(id || (plDef && plDef.id) || localStorage.getItem('shplane_plane') || 'cub'), from = craft === 'plane' ? pl.p : veh.p, fx = from.x, fz = from.z, wasAir = craft === 'plane' && !pl.onGround;
+    if (plVis) { scene.remove(plVis.group); plVis.dispose(); }
+    if (autoOn) setAuto(false);
+    carRoot.visible = false; skid(0, 0, 0, 0, 0, 0, false); skid(1, 0, 0, 0, 0, 0, false);
+    plDef = def; plVis = buildPlane(def, planeMat, flameMat); plVis.group.name = 'plane:' + def.id; scene.add(plVis.group);
+    pl = createPlaneState(def); craft = 'plane'; document.body.classList.add('plane'); document.body.classList.toggle('noab', !def.AB);
+    shadow.userData.w = def.span * 0.95; shadow.userData.l = def.dims[2] * 0.95;
+    $('bGas').textContent = 'THR+'; $('bBrk').textContent = 'THR−'; $('bDrf').textContent = 'BRAKE'; $('bBst').textContent = 'BURN';
+    localStorage.setItem('shplane_craft', 'plane'); localStorage.setItem('shplane_plane', def.id); FL.setVisible(true);
+    if (how === 'air' || wasAir) { pl.p.set(fx, 0, fz); planeAirStart(fx, fz); } else { pl.p.set(fx, 0, fz); planeToRunway(Math.max(0, W.project(fx, fz).s) + 15); }
+    return pl;
+  }
+  if (craft !== 'plane') return veh;
+  const s = Math.max(0, W.project(pl.p.x, pl.p.z).s);
+  scene.remove(plVis.group); plVis.dispose(); plVis = null; craft = 'car'; carRoot.visible = true; FL.setVisible(false);
+  document.body.classList.remove('plane', 'noab'); $('bGas').textContent = 'GAS'; $('bBrk').textContent = 'BRAKE'; $('bDrf').textContent = 'DRIFT'; $('bBst').textContent = 'BOOST';
+  const d = veh.P.dims || [2, 1.5, 4.4]; shadow.userData.w = d[0] * 1.5; shadow.userData.l = d[2] * 1.05;
+  camera.up.copy(V_UP); U.uFogY.value = 1; setFar(CAM_FAR, CAM_NEAR); localStorage.setItem('shplane_craft', 'car');
+  const p = lanePoint(s); spawn(p.x, p.z, p.yaw); camDir.set(Math.sin(p.yaw), 0, Math.cos(p.yaw)); camPos.set(veh.p.x - camDir.x * 9, veh.p.y + 4, veh.p.z - camDir.z * 9); rebase(); updateWorld(true); msg(vDef.name);
+  return veh;
+}
+function setFar(f, n) { if (Math.abs(camera.far - f) > 4 || Math.abs(camera.near - n) > 0.05) { camera.far = f; camera.near = n; post.uniforms.uF.value = f; post.uniforms.uN.value = n; camera.updateProjectionMatrix(); } }
+function readPlaneInput(dt) { // keys: A/D ←/→ roll, ↑ nose down / ↓ nose up (stick), W/S throttle, Q/E rudder, Space wheel brake, Shift afterburner
+  const kR = (key.KeyD || key.ArrowRight ? 1 : 0) - (key.KeyA || key.ArrowLeft ? 1 : 0), kP = ((key.ArrowDown ? 1 : 0) - (key.ArrowUp ? 1 : 0)) * (pitchInv ? -1 : 1), kY = (key.KeyE ? 1 : 0) - (key.KeyQ ? 1 : 0);
+  const curve = v => Math.sign(v) * Math.pow(Math.min(1, Math.abs(v)), 1.35), ramp = (c, t, r) => c + Math.max(-r * dt, Math.min(r * dt, t - c));
+  const tR = curve(Math.max(-1, Math.min(1, touch.steer + (tilt ? tiltSteer : 0)))), tP = curve(pitchInv ? touch.pitch : -touch.pitch), tY = (touch.rr ? 1 : 0) - (touch.rl ? 1 : 0);
+  pRollSm = kR ? ramp(pRollSm, kR, 5) : pRollSm + (tR - pRollSm) * Math.min(1, 14 * dt);
+  pPitchSm = kP ? ramp(pPitchSm, kP, 4) : pPitchSm + (tP - pPitchSm) * Math.min(1, 14 * dt);
+  pYawSm = ramp(pYawSm, kY || tY, 5);
+  const up = key.KeyW || touch.gas, dn = key.KeyS || touch.brk;
+  if (up) thrLever = Math.min(1, thrLever + 0.7 * dt); if (dn) thrLever = Math.max(0, thrLever - 0.9 * dt);
+  pin.pitch = pPitchSm; pin.roll = pRollSm; pin.yaw = pYawSm; pin.thr = thrLever;
+  pin.brake = key.Space || touch.drf || (dn && thrLever <= 0 && pl.onGround) ? 1 : 0; pin.boost = key.ShiftLeft || key.ShiftRight || touch.bst ? 1 : 0;
+  if (plAuto) { Object.assign(pin, typeof plAuto === 'function' ? plAuto(pl, simT) : plAuto); thrLever = pin.thr; } // headless tests: scripted pilot
+  if (editor.benching) { pin.pitch = pin.roll = pin.yaw = 0; }
+}
+bus.on('plane:crash', d => { shake = 1; msg('CRASH! ' + String(d.cause || '').toUpperCase()); popText('KA-BOOM!', d.x, d.y + 4, d.z, '#ff5030');
+  for (let k = 0; k < 28; k++) { const a = Math.random() * 6.28, v = 2 + Math.random() * 8; puff(d.x, d.y + Math.random() * 2, d.z, Math.cos(a) * v, 2 + Math.random() * 6, Math.sin(a) * v, 1.6 + Math.random() * 1.8, 1.1 + Math.random(), k % 3 ? [0.3, 0.28, 0.27] : [1, 0.62, 0.18]); } });
+bus.on('plane:land', d => { msg(d.grade + ' LANDING!' + (d.air > 20 ? ' · ' + Math.round(d.air) + 's FLIGHT' : '')); shake = Math.max(shake, Math.min(0.6, d.sink / 6));
+  const si = surfIdx(world.surfaceAt(pl.p.x, pl.p.z)); for (let k = 0; k < 12; k++) { const a = k / 12 * 6.28; puff(pl.p.x + Math.cos(a) * 1.5, pl.p.y - 1, pl.p.z + Math.sin(a) * 1.5, Math.cos(a) * 5, 0.8, Math.sin(a) * 5, 1.4, 0.7, PUFFC[si] || PUFFC[2]); } });
+bus.on('plane:takeoff', () => { if (simT - lastTO > 3) msg('AIRBORNE!'); lastTO = simT; });
+function planeVisuals(dt, sp) {
+  const g = plVis.group; g.position.copy(pl.p); g.quaternion.copy(pl.q);
+  if (plVis.prop) plVis.prop.rotation.z += Math.min(1.9, pl.rpm / 60 * 6.283 * dt);
+  if (plVis.flame) { plVis.flame.visible = pl.boosting && !pl.crashed; plVis.flame.scale.set(1, 1, 0.75 + Math.random() * 0.5); }
+  if (pl.crashed && Math.random() < 0.6) puff(pl.p.x + (Math.random() - .5) * 2, pl.p.y + 1, pl.p.z + (Math.random() - .5) * 2, (Math.random() - .5) * 2, 3 + Math.random() * 2, (Math.random() - .5) * 2, 1.4 + Math.random(), 1.6, Math.random() < 0.3 ? [1, 0.55, 0.15] : [0.25, 0.24, 0.24]);
+  else if (pl.agl < 7 && sp > 5 && Math.random() < (pl.onGround ? 0.55 : 0.3)) { const si = surfIdx(world.surfaceAt(pl.p.x, pl.p.z));
+    if (si !== 0 || pl.onGround && sp > 25 && Math.random() < 0.2) puff(pl.p.x - pl.fwd.x * 2.5 + (Math.random() - .5) * 3, T.groundAt(pl.p.x, pl.p.z) + 0.3, pl.p.z - pl.fwd.z * 2.5 + (Math.random() - .5) * 3, -pl.v.x * 0.12 + (Math.random() - .5) * 3, 0.6 + Math.random(), -pl.v.z * 0.12 + (Math.random() - .5) * 3, 0.9 + Math.random() * 0.8, 0.6, PUFFC[si] || PUFFC[2]); }
+  const gy = T.groundAt(pl.p.x, pl.p.z), agl = pl.p.y - gy; shadow.position.set(pl.p.x, Math.max(gy, WATER) + 0.1, pl.p.z); shadow.rotation.y = Math.atan2(pl.fwd.x, pl.fwd.z);
+  const sh = Math.max(0.35, 1 - agl * 0.012); shadow.scale.set(sh * shadow.userData.w, 1, sh * shadow.userData.l); shadow.visible = agl < 70;
+  if (vshadow.size && vshadow.update(g, pl.p, Math.max(plDef.span, plDef.dims[2]) * 0.58 + 0.5, 140)) shadow.visible = false;
+}
+let altK = 0; // 0 = on the deck, 1 = high: blends fog / draw distance toward the far-terrain LOD range
+function planeCam(dt, sp) { // flight chase camera: trails the flight path in 3-D, banks a little with the plane, never dips under the terrain
+  const L = plDef.dims[2], span = plDef.span;
+  tv.copy(pl.fwd); if (sp > 12 && !pl.onGround && !pl.crashed) { RV.copy(pl.v).normalize(); tv.lerp(RV, 0.45).normalize(); }
+  if (!pl.crashed) camDir3.lerp(tv, Math.min(1, (pl.onGround ? 5 : 3) * dt)).normalize();
+  camDir.set(camDir3.x, 0, camDir3.z); if (camDir.lengthSq() < 1e-4) camDir.set(pl.fwd.x, 0, pl.fwd.z); camDir.normalize();
+  const back = L * 1.0 + span * 0.35 + 3 + Math.min(8, sp * 0.04) + (pl.crashed ? 14 : 0), hh = (L + span * 0.35 + 3) * 0.36 + 1 + (pl.crashed ? 7 : 0);
+  RV.copy(pl.up).lerp(V_UP, 0.65).normalize();
+  pTmp.copy(camDir3).multiplyScalar(-back).addScaledVector(RV, hh); camOff.lerp(pTmp, Math.min(1, 7 * dt));
+  camPos.copy(pl.p).add(camOff); camPos.y = Math.max(camPos.y, T.groundAt(camPos.x, camPos.z) + 1.5, WATER + 1); camera.position.copy(camPos);
+  if (shake > 0) { camera.position.x += (Math.random() - .5) * shake * 0.8; camera.position.y += (Math.random() - .5) * shake * 0.8; shake = Math.max(0, shake - dt * 2.5); }
+  camUpS.lerp(pTmp.copy(V_UP).lerp(pl.up, hMode === 'arcade' ? 0.3 : 0.45), Math.min(1, 4 * dt)).normalize(); camera.up.copy(camUpS);
+  look.copy(pl.p).addScaledVector(pl.fwd, L * 0.7).addScaledVector(V_UP, 1.2); camera.lookAt(look);
+  camera.fov += ((pl.boosting ? 80 : 62 + Math.min(14, sp * 0.07)) - camera.fov) * Math.min(1, 3 * dt);
+  camera.updateProjectionMatrix();
+}
+function planeFar(dt) { // after atmosphere(): with height, thin the vertical fog and push fog + far plane out to the LOD rings
+  const k = Math.max(0, Math.min(1, (pl.agl - 20) / 500)); altK += (k - altK) * Math.min(1, 1.5 * dt);
+  U.uFogY.value = 1 - 0.65 * altK;
+  const range = FL.range * 0.97, base = U.uFar.value, edge = Math.min(1, Math.max(0, (latDist() - 9000) / 5000)); // soft world edge: thick haze past ~9 km off the route
+  U.uFar.value = Math.max(base, base + (range - base) * (0.35 + 0.65 * altK)) * (1 - 0.75 * edge);
+  setFar(Math.max(CAM_FAR, U.uFar.value * 1.08), CAM_NEAR + 2.2 * altK);
+}
+let latD = 0; const latDist = () => latD;
+const pac = $('pAtt').getContext('2d'); let pHudT = 0;
+function planeHud(dt) {
+  $('spd').textContent = Math.round(pl.ias * 3.6); $('bar').style.width = (pl.nitro * 100) + '%';
+  $('air').textContent = pl.crashed ? 'CRASHED' : pl.stall ? 'STALL!' : latD > 11000 ? 'TURN BACK · EDGE OF THE MAP' : '';
+  $('carinfo').textContent = plDef.name + (pl.onGround ? ' · ON GROUND' : ' · AGL ' + Math.round(pl.agl) + ' m');
+  if (unlShown) { unlShown = false; $('bUnl').style.display = 'none'; }
+  $('pThrF').style.height = (thrLever * 100) + '%'; $('pThrV').textContent = Math.round(thrLever * 100) + (pl.boosting ? '+' : '');
+  if ((pHudT -= dt) > 0) return; pHudT = 1 / 30;
+  const c = pac, Wd = 210, Hd = 104, cx = 105, cy = 52, R = 44; c.clearRect(0, 0, Wd, Hd);
+  const bank = Math.atan2(pl.left.y, pl.up.y), pitch = Math.asin(Math.max(-1, Math.min(1, pl.fwd.y))), py = pitch * 57.3 * 1.6;
+  c.save(); c.beginPath(); c.arc(cx, cy, R, 0, 7); c.clip(); c.translate(cx, cy); c.rotate(-bank);
+  c.fillStyle = '#5fb8ff'; c.fillRect(-90, -90 + py, 180, 90); c.fillStyle = '#b07a42'; c.fillRect(-90, py, 180, 90);
+  c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.moveTo(-90, py); c.lineTo(90, py); c.stroke(); c.lineWidth = 1.5;
+  for (const p of [-20, -10, 10, 20]) { const y = py - p * 1.6, w = Math.abs(p) === 10 ? 12 : 20; c.beginPath(); c.moveTo(-w, y); c.lineTo(w, y); c.stroke(); }
+  c.restore(); c.lineWidth = 4; c.strokeStyle = '#111'; c.beginPath(); c.arc(cx, cy, R, 0, 7); c.stroke();
+  c.strokeStyle = '#ff8a1a'; c.lineWidth = 4; c.beginPath(); c.moveTo(cx - 26, cy); c.lineTo(cx - 9, cy); c.lineTo(cx, cy + 7); c.lineTo(cx + 9, cy); c.lineTo(cx + 26, cy); c.stroke();
+  const ink = (t, x, y, f, col = '#fff', al = 'center') => { c.font = f; c.textAlign = al; c.lineJoin = 'round'; c.lineWidth = 4; c.strokeStyle = '#111'; c.strokeText(t, x, y); c.fillStyle = col; c.fillText(t, x, y); };
+  ink('IAS', 26, 22, '900 10px "Arial Black",system-ui'); ink(String(Math.round(pl.ias * 3.6)), 26, 44, 'italic 900 19px "Arial Black",system-ui', pl.stall ? '#ff5030' : '#ffd23c');
+  ink('ALT', Wd - 26, 22, '900 10px "Arial Black",system-ui'); ink(String(Math.round(pl.alt)), Wd - 26, 44, 'italic 900 19px "Arial Black",system-ui', '#ffd23c');
+  ink('AGL ' + Math.round(pl.agl), Wd - 26, 60, '900 10px "Arial Black",system-ui');
+  ink((pl.vs >= 0 ? '▲' : '▼') + Math.abs(pl.vs).toFixed(1), 26, 60, '900 11px "Arial Black",system-ui', pl.vs < -8 && pl.agl < 60 ? '#ff5030' : '#fff');
+  ink(String(Math.round((720 - (pl.hdg ?? Math.atan2(pl.fwd.x, pl.fwd.z) * 57.3)) % 360) % 360).padStart(3, '0') + '°', cx, 11, '900 10px "Arial Black",system-ui');
+  ink('THR ' + Math.round(pl.thrA * 100) + '%', 26, 84, '900 10px "Arial Black",system-ui');
+  const warn = pl.crashed ? '' : pl.stall ? 'STALL' : (pl.agl < 40 && pl.vs < -10 ? 'PULL UP' : '');
+  if (warn && (tFrame * 3 % 1) < 0.6) ink(warn, cx, Hd - 4, 'italic 900 15px "Arial Black",system-ui', '#ff5030');
+  else ink(pl.onGround ? 'ON ROAD' : 'AOA ' + Math.round(pl.alpha * 57.3) + '°', Wd - 30, 84, '900 10px "Arial Black",system-ui');
+}
+function planeGauge() {
+  const Wd = 200, Hd = 120, cx = 100, cy = 104, R = 82, rf = Math.min(1, pl.rpm / (plDef.redline * 1.1)); gc.clearRect(0, 0, Wd, Hd);
+  const a0 = Math.PI * 0.95, a1 = Math.PI * 2.05;
+  gc.lineCap = 'butt'; gc.lineWidth = 20; gc.strokeStyle = '#111'; gc.beginPath(); gc.arc(cx, cy, R, a0 - 0.03, a1 + 0.03); gc.stroke();
+  gc.lineWidth = 13; gc.strokeStyle = '#fff8e0'; gc.beginPath(); gc.arc(cx, cy, R, a0, a1); gc.stroke();
+  gc.strokeStyle = pl.boosting ? '#ff3a1a' : '#38c45a'; gc.beginPath(); gc.arc(cx, cy, R, a0, a0 + (a1 - a0) * rf); gc.stroke();
+  gc.textAlign = 'center'; gc.lineJoin = 'round';
+  const ink = (t, x, y, f, lw, col = '#ffd23c') => { gc.font = f; gc.lineWidth = lw; gc.strokeStyle = '#111'; gc.fillStyle = '#111'; gc.fillText(t, x + 3, y + 3); gc.strokeText(t, x, y); gc.fillStyle = col; gc.fillText(t, x, y); };
+  ink(Math.round(pl.thrA * 100) + '%', cx, cy - 18, 'italic 900 34px "Arial Black",system-ui', 5, pl.boosting ? '#ff8a1a' : '#ffd23c');
+  gc.fillStyle = '#fff'; gc.font = 'italic 900 11px "Arial Black",system-ui'; gc.lineWidth = 3; gc.strokeStyle = '#111';
+  const lbl = (t, x, y) => { gc.strokeText(t, x, y); gc.fillText(t, x, y); };
+  lbl(plDef.prop ? (pl.rpm / 1000).toFixed(1) + 'K RPM' : Math.round(pl.rpm / plDef.redline * 100) + '% N1', cx - 56, cy + 12);
+  lbl(pl.boosting ? 'AFTERBURN' : pl.onGround ? 'GROUND' : 'AIR', cx + 56, cy + 12);
+}
+function planeTelemetry() { // fills the sound plugin API from the flight model (aero presets: aeroFlat4 / aeroFlat6 / turbine)
+  const t = TEL, s = world.surfaceAt(pl.p.x, pl.p.z), sn = s.name || 'grass';
+  t.rpm = pl.rpm; t.idle = plDef.idle; t.redline = plDef.redline; t.throttle = pl.thrA; t.brake = pin.brake; t.boost = pl.boosting; t.nitro = pl.nitro;
+  t.gear = 1; t.gears = 1; t.shifting = false; t.load = Math.min(1, pl.thrA * (1 - Math.min(0.5, pl.ias / 200))); t.speed = pl.v.length(); t.fwdSpeed = pl.ias;
+  t.grounded = pl.onGround ? (pl.gearN || 3) : 0; t.air = pl.onGround ? 0 : pl.airT || 0; t.surface = sn;
+  for (let i = 0; i < 4; i++) { const w = t.wheels[i]; w.contact = pl.onGround && i < 3; w.surface = sn; w.slipRatio = 0; w.slipAngle = 0; w.load = w.contact ? 1 : 0; }
+  t.vehicle = plDef.id; t.soundPreset = t.vehiclePreset = plDef.sound; t.engineTemp = t.temp = 80; t.overheat = false; t.limiter = false; t.damage = pl.damage; t.mass = plDef.m; t.logs = 0; t.capacity = 0;
+  t.paused = mapOpen || !!(uied && uied.open);
+}
+{ // throttle slider (touch / mouse) + rudder buttons
+  const el = $('pThr'), set = e => { const r = el.getBoundingClientRect(); thrLever = Math.max(0, Math.min(1, 1 - (e.clientY - r.top - 8) / (r.height - 16))); };
+  el.addEventListener('pointerdown', e => { if (document.body.classList.contains('uied')) return; el.setPointerCapture(e.pointerId); set(e); e.preventDefault(); });
+  el.addEventListener('pointermove', e => { if (el.hasPointerCapture(e.pointerId)) set(e); });
+  for (const [id, k] of [['pRL', 'rl'], ['pRR', 'rr']]) { const b = $(id);
+    b.addEventListener('touchstart', e => { touch[k] = 1; b.classList.add('on'); e.preventDefault(); }, { passive: false });
+    const up = () => { touch[k] = 0; b.classList.remove('on'); }; b.addEventListener('touchend', up); b.addEventListener('touchcancel', up);
+    b.addEventListener('mousedown', () => touch[k] = 1); b.addEventListener('mouseup', up); b.addEventListener('mouseleave', up); }
+}
+
 // ---------- loop ----------
 const camPos = new THREE.Vector3(veh.p.x, veh.p.y + 6, veh.p.z - 12), look = new THREE.Vector3(), camDir = new THREE.Vector3(0, 0, 1);
 const tv = new THREE.Vector3(), RV = new THREE.Vector3(), camTrees = []; let camBack = 8, camLow = 0;
 let last = performance.now(), acc = 0, fpsT = 0, frames = 0, fps = 0, shake = 0, tFrame = 0;
 let pwSpool = 0; const STEP = 1 / 120, stats = { fps: 0, physMs: 0, frameMs: 0, minFps: 999 };
 const focus = { x: 0, y: 0, z: 0 };
-function updateWorld(force) { updateScenery(veh.p.x, veh.p.z); if (force) scx = 1e9, updateScenery(veh.p.x, veh.p.z); }
+function updateWorld(force) { const p = cur().p; updateScenery(p.x, p.z); if (force) { scx = 1e9; updateScenery(p.x, p.z); FL.update(p.x, p.z, false); } }
 // ---------- floating origin: when the car is > 1080 m from the local origin, shift EVERYTHING by a multiple of 720 m
 // (physics state + wheels, camera, dust, skids, rocks, props, terrain/roads/trees/grass via T.shiftOrigin). Keeps float32 precision for 50+ km.
 const REBASE_R = 1080, REBASE_STEP = 720; let rebases = 0, odoX = veh.p.x, odoZ = veh.p.z;
 function rebase() {
-  const px = veh.p.x, pz = veh.p.z; if (Math.abs(px) < REBASE_R && Math.abs(pz) < REBASE_R) return false;
+  const A = cur(), px = A.p.x, pz = A.p.z; if (Math.abs(px) < REBASE_R && Math.abs(pz) < REBASE_R) return false;
   const dx = Math.round(px / REBASE_STEP) * REBASE_STEP, dz = Math.round(pz / REBASE_STEP) * REBASE_STEP; if (!dx && !dz) return false;
-  const pre = W.project(px, pz), vx = veh.v.x, vz = veh.v.z, cgx = camPos.x - px, cgz = camPos.z - pz;
-  veh.p.x -= dx; veh.p.z -= dz;
+  const pre = W.project(px, pz), vx = A.v.x, vz = A.v.z, cgx = camPos.x - px, cgz = camPos.z - pz;
+  veh.p.x -= dx; veh.p.z -= dz; if (pl) { if (pl !== A) { pl.p.x -= dx; pl.p.z -= dz; } else if (A !== veh) { pl.p.x -= dx; pl.p.z -= dz; } }
   for (const wh of veh.wheels) { if (wh.pos) { wh.pos.x -= dx; wh.pos.z -= dz; } if (wh.cp) { wh.cp.x -= dx; wh.cp.z -= dz; } }
   camPos.x -= dx; camPos.z -= dz; look.x -= dx; look.z -= dz; camera.position.x -= dx; camera.position.z -= dz; camera.updateMatrixWorld();
   for (let i = 0; i < PN; i++) { pPos[i * 3] -= dx; pPos[i * 3 + 2] -= dz; } pGeo.attributes.position.needsUpdate = true;
   for (let i = 0; i < skPos.length; i += 3) { skPos[i] -= dx; skPos[i + 2] -= dz; } skGeo.attributes.position.needsUpdate = true;
   for (const p of skPrev) if (p) { p[0] -= dx; p[2] -= dz; }
   odoX -= dx; odoZ -= dz;
-  T.shiftOrigin(dx, dz, veh.p.x, veh.p.z); // world.js origin + terrain rings/roads/trees/grass/fire + uOrg
-  cellCache.clear(); scx = 1e9; colliders.length = 0; props.shift(); updateScenery(veh.p.x, veh.p.z);
-  { const post = W.project(veh.p.x, veh.p.z), e = Math.max(Math.abs(post.s - pre.s), Math.abs(post.d - pre.d), Math.abs(veh.v.x - vx) + Math.abs(veh.v.z - vz), Math.abs(camPos.x - veh.p.x - cgx) + Math.abs(camPos.z - veh.p.z - cgz));
+  T.shiftOrigin(dx, dz, A.p.x, A.p.z); FL.shift(dx, dz); // world.js origin + terrain rings/roads/trees/grass/fire + uOrg
+  cellCache.clear(); scx = 1e9; colliders.length = 0; props.shift(); updateScenery(A.p.x, A.p.z);
+  { const post = W.project(A.p.x, A.p.z), e = Math.max(Math.abs(post.s - pre.s), Math.abs(post.d - pre.d), Math.abs(A.v.x - vx) + Math.abs(A.v.z - vz), Math.abs(camPos.x - A.p.x - cgx) + Math.abs(camPos.z - A.p.z - cgz));
     stats.rebaseErr = Math.max(stats.rebaseErr || 0, e); }
-  vis.group.position.set(veh.p.x, veh.p.y, veh.p.z); rebases++; fire('origin:shift', { dx, dz, origin: W.origin() });
+  vis.group.position.set(veh.p.x, veh.p.y, veh.p.z); if (plVis) plVis.group.position.copy(pl.p); rebases++; fire('origin:shift', { dx, dz, origin: W.origin() });
   return true;
 }
 applyQuality(); updateWorld(true);
@@ -609,18 +783,23 @@ function frame(now) {
   requestAnimationFrame(frame); const t0 = performance.now(); let dt = Math.min(0.1, (now - last) / 1000); last = now; tFrame += dt; renderer.info.reset();
   dynRes(dt);
   if (uied.open) { audio.frame(dt, true); last = now; return; } // UI layout editor pauses the game (last frame stays on screen)
-  readInput(dt);
-  if (editor.benching) { inp.gas = inp.brake = inp.boost = 0; inp.steer = 0; inp.hand = 1; } // sound editor open: car input paused (audio keeps running)
+  const PLN = craft === 'plane';
+  if (PLN) readPlaneInput(dt); else readInput(dt);
+  if (PLN && (menuOpen || editor.benching)) acc = 0; // planes can't park in mid-air: the menu / sound editor pause the flight
+  penv.arcade = hMode === 'arcade';
+  if (editor.benching && !PLN) { inp.gas = inp.brake = inp.boost = 0; inp.steer = 0; inp.hand = 1; } // sound editor open: car input paused (audio keeps running)
   acc += dt; let steps = 0; const tp = performance.now();
-  while (acc >= STEP && steps < 12) { simT += STEP; T.setRef(veh.p.y); const g0 = inp.gas; inp.gas = PWR.throttle(veh, STEP, g0); rig.step(inp, STEP); inp.gas = g0; pwSpool = PWR.tick(veh, STEP, inp.gas); collideRocks(veh); tunnelWalls(veh); acc -= STEP; steps++; }
+  while (acc >= STEP && steps < 12) { simT += STEP; if (PLN) { T.setRef(pl.p.y); stepPlane(pl, pin, STEP, penv); acc -= STEP; steps++; continue; } T.setRef(veh.p.y); const g0 = inp.gas; inp.gas = PWR.throttle(veh, STEP, g0); rig.step(inp, STEP); inp.gas = g0; pwSpool = PWR.tick(veh, STEP, inp.gas); collideRocks(veh); tunnelWalls(veh); acc -= STEP; steps++; }
   if (steps === 12) acc = 0;
   stats.physMs = performance.now() - tp;
-  rebase();
-  { const d = Math.hypot(veh.p.x - odoX, veh.p.z - odoZ); if (d < 50) odo += d; odoX = veh.p.x; odoZ = veh.p.z; } // odometer (teleports / resets do not count)
-  sCur = Math.max(0, W.project(veh.p.x, veh.p.z).s); if (sCur > sMax) sMax = sCur; W.setFocus(sCur); props.update(sCur);
+  if (PLN && pl.crashed && pl.crashT > 2.6) planeToRunway();
+  rebase(); const AC = cur();
+  { const d = Math.hypot(AC.p.x - odoX, AC.p.z - odoZ); if (d < 50 && !PLN) odo += d; odoX = AC.p.x; odoZ = AC.p.z; } // odometer (teleports / resets / flights do not count)
+  { const pr = W.project(AC.p.x, AC.p.z); latD = Math.abs(pr.d); sCur = Math.max(0, pr.s); } if (sCur > sMax) sMax = sCur; W.setFocus(sCur); props.update(sCur);
   updateWorld(false); if (qOpen && (qT -= dt) <= 0) quick(false);
   U.uHeadP.value.set(veh.p.x, veh.p.y, veh.p.z).addScaledVector(veh.fwd, 2).addScaledVector(veh.up, 0.8); U.uHeadD.value.set(veh.fwd.x, veh.fwd.y, veh.fwd.z).addScaledVector(veh.up, -0.12).normalize();
-  const sp = Math.hypot(veh.v.x, veh.v.y, veh.v.z), boosting = veh.boosting;
+  const sp = Math.hypot(AC.v.x, AC.v.y, AC.v.z), boosting = AC.boosting;
+  if (PLN) { planeVisuals(dt, sp); updatePuffs(dt); planeCam(dt, sp); } else {
   // car visuals: vehicle model on the rigid-body frame, wheels from the raycast suspension, attachments on rig.root (child of the model group)
   vis.group.position.set(veh.p.x, veh.p.y, veh.p.z); vis.group.quaternion.set(veh.q.x, veh.q.y, veh.q.z, veh.q.w);
   const wr = veh.P.wheelR;
@@ -660,21 +839,25 @@ function frame(now) {
   if (shake > 0) { camera.position.x += (Math.random() - .5) * shake * 0.8; camera.position.y += (Math.random() - .5) * shake * 0.8; shake = Math.max(0, shake - dt * 2.5); }
   look.set(veh.p.x, veh.p.y + 1.3, veh.p.z); camera.lookAt(look);
   camera.fov += ((boosting ? 80 : 64 + Math.min(12, sp * 0.15)) - camera.fov) * Math.min(1, 3 * dt); camera.updateProjectionMatrix();
+  }
   camera.updateMatrixWorld();
   if (window.__st.camHook) window.__st.camHook(camera); // tests / screenshots: custom camera (e.g. low shot across the RIM banking)
-  focus.x = veh.p.x; focus.y = veh.p.y; focus.z = veh.p.z;
-  T.update(dt, { camera, focus, viewHeight: rt.height }); atmosphere(dt); // terrain weather/sky/fire/trees, then the game's fog/dust overlay
+  focus.x = AC.p.x; focus.y = AC.p.y; focus.z = AC.p.z;
+  T.update(dt, { camera, focus, viewHeight: rt.height }); atmosphere(dt);
+  if (PLN) { FL.update(camera.position.x, camera.position.z, false); planeFar(dt); } // terrain weather/sky/fire/trees, then the game's fog/dust overlay
   post.uniforms.uBoost.value += ((boosting ? 1 : 0) - post.uniforms.uBoost.value) * Math.min(1, 6 * dt);
+  if (PLN) planeHud(dt); else {
   $('spd').textContent = Math.abs(Math.round(fwdSpeed() * 3.6)); $('bar').style.width = (veh.nitro * 100) + '%';
   $('air').textContent = veh.air > 0.5 ? 'AIR ' + veh.air.toFixed(1) + 's!' : '';
   $('carinfo').textContent = (veh.damage >= 1 ? 'DMG ' + veh.damage.toFixed(0) + '%  ' : '') + (veh.cargo.capacity ? 'LOGS ' + veh.cargo.logs + '/' + veh.cargo.capacity : '');
   { const show = veh.cargo.capacity > 0 && veh.cargo.logs > 0; if (show !== unlShown) { unlShown = show; $('bUnl').style.display = show ? 'block' : 'none'; } if (show) $('bUnl').textContent = 'UNLOAD ' + veh.cargo.logs; }
+  }
   if (msgT > 0 && performance.now() >= msgT) { msgT = 0; $('msg').textContent = ''; $('msg').classList.remove('show'); }
-  gearFlash = Math.max(0, gearFlash - dt); updateTelemetry(); routeHud(dt); gauge(); updateLabels(dt); audio.hostTurbo = veh.__power && veh.__power.cfg.spool ? pwSpool : undefined; audio.frame(dt);
+  gearFlash = Math.max(0, gearFlash - dt); updateTelemetry(); routeHud(dt); gauge(); updateLabels(dt); audio.hostTurbo = !PLN && veh.__power && veh.__power.cfg.spool ? pwSpool : undefined; audio.frame(dt);
   if (!QS.has('nopost')) { renderer.setRenderTarget(rt); renderer.render(scene, camera); renderer.setRenderTarget(null); renderer.render(postScene, postCam); }
   else { renderer.setRenderTarget(null); renderer.render(scene, camera); }
   stats.frameMs = performance.now() - t0;
-  { const g = Math.hypot(camera.position.x - veh.p.x, camera.position.z - veh.p.z); if (tFrame > 2 && stats.camG != null) stats.camJump = Math.max(stats.camJump || 0, Math.abs(g - stats.camG)); stats.camG = g; }
+  { const g = Math.hypot(camera.position.x - AC.p.x, camera.position.z - AC.p.z); if (tFrame > 2 && stats.camG != null) stats.camJump = Math.max(stats.camJump || 0, Math.abs(g - stats.camG)); stats.camG = g; }
   frames++; fpsT += dt; if (fpsT > 0.5) { fps = stats.fps = frames / fpsT; window.__fps = fps; if (tFrame > 3) stats.minFps = Math.min(stats.minFps, fps); frames = 0; fpsT = 0;
     if (dbg) { sample(veh.p.x, veh.p.z, SO); const ts = T.stats ? T.stats() : {}, O = W.origin(); $('dbg').textContent = `${fps.toFixed(0)} fps  GFX ${qName}  cpu ${stats.frameMs.toFixed(1)}ms (phys ${stats.physMs.toFixed(1)})\ncalls ${renderer.info.render.calls} tris ${(renderer.info.render.triangles / 1000).toFixed(0)}k\nroute ${(sCur / 1000).toFixed(2)} km · local ${veh.p.x.toFixed(0)},${veh.p.z.toFixed(0)} y${veh.p.y.toFixed(0)} · origin ${O.x},${O.z} (${rebases}×) ${W.BIOME_NAMES[SO.dom]}\n${vDef.id} gear ${veh.gear} rpm ${veh.rpm.toFixed(0)} ${veh.heat.temp.toFixed(0)}°C wheels ${veh.grounded}${autoOn ? ' AUTO' : ''}${ts.fire && ts.fire.burning ? ' fire ' + ts.fire.burning : ''}`; } }
 }
@@ -696,11 +879,27 @@ function simFast(sec) {
   offCrash(); r.km = (odo - r.odo0) / 1000; r.ds = sCur - r.s0; r.rebases = rebases - r.rebases0; r.damage = veh.damage; r.origin = W.origin(); r.rebaseErr = stats.rebaseErr || 0; r.chunks = W.chunkStats();
   return r;
 }
+// tests: headless flight (no rendering): stepPlane + floating origin + streaming + far LOD at 10 Hz
+function planeSim(sec) {
+  const n = Math.round(sec / STEP), r = { rebases0: rebases, maxAlt: -1e9, minAgl: 1e9, nan: 0, dist: 0, maxLocal: 0, lodMs: 0 }; let px = pl.p.x, pz = pl.p.z;
+  for (let i = 0; i < n; i++) { simT += STEP; readPlaneInput(STEP); T.setRef(pl.p.y); stepPlane(pl, pin, STEP, penv);
+    if (!Number.isFinite(pl.p.x + pl.p.y + pl.p.z + pl.v.x + pl.v.y + pl.v.z)) { r.nan++; break; }
+    if (i % 12) continue;
+    r.dist += Math.hypot(pl.p.x - px, pl.p.z - pz); px = pl.p.x; pz = pl.p.z;
+    if (rebase()) { px = pl.p.x; pz = pl.p.z; }
+    r.maxAlt = Math.max(r.maxAlt, pl.alt); if (!pl.onGround) r.minAgl = Math.min(r.minAgl, pl.agl); r.maxLocal = Math.max(r.maxLocal, Math.abs(pl.p.x), Math.abs(pl.p.z));
+    const pr = W.project(pl.p.x, pl.p.z); sCur = Math.max(0, pr.s); latD = Math.abs(pr.d); W.setFocus(sCur); props.update(sCur); updateWorld(false);
+    if (i % 120 === 0) { camPos.copy(pl.p); camPos.y += 5; camera.position.copy(camPos); camera.lookAt(pl.p.x + pl.fwd.x, pl.p.y, pl.p.z + pl.fwd.z); camera.updateMatrixWorld(); focus.x = pl.p.x; focus.y = pl.p.y; focus.z = pl.p.z; T.update(0.5, { camera, focus, viewHeight: rt.height }); const t0 = performance.now(); FL.update(pl.p.x, pl.p.z, false); r.lodMs = Math.max(r.lodMs, performance.now() - t0); }
+  }
+  r.rebases = rebases - r.rebases0; r.km = r.dist / 1000; r.origin = W.origin(); r.rebaseErr = stats.rebaseErr || 0; r.crashes = pl.crashes; r.landings = pl.landings; r.crashed = pl.crashed;
+  return r;
+}
+{ const qp = QS.get('plane'); if (qp || (QS.get('craft') !== 'car' && !QS.get('car') && localStorage.getItem('shplane_craft') === 'plane')) setCraft('plane', qp || undefined, QS.get('air') ? 'air' : undefined); }
 requestAnimationFrame(frame);
 // release identity from js/version.js (title, menu tag, versions link)
 document.title = GAME_NAME; { const t = document.getElementById('verTag'); if (t) t.textContent = 'V' + GAME_VERSION; const v = document.getElementById('versionsLink'); if (v) v.href = VERSIONS_URL; }
 const FS = initFullscreen({ btn: $('tFull'), hint: $('fsHint') });
-window.__st = { FS, version: GAME_NAME, renderer, U, get gearbox() { return gbMode; }, setGearbox, manualShift, get inp() { return inp; }, get msgText() { return $("msg") ? $("msg").textContent : ""; }, PWR, get gripTest() { return gripTest; }, set gripTest(v) { gripTest = v; }, get vSub() { return vSub; }, openPower: () => { openMenu(true, 'vehicle'); vSub = 'power'; vehRow(); }, msg, get msgT() { return msgT ? Math.max(0, msgT - performance.now()) / 1000 : 0; }, get veh() { return veh; }, get state() { return veh; }, rig, T, PH, bus, world, hpMap, evLog, stats, inp, W, audio, editor, TEL, scene,
+window.__st = { FL, get craft() { return craft; }, setCraft, get plane() { return pl; }, get planeDef() { return plDef; }, PLANES, planeToRunway, roadField, airStart: planeAirStart, get planeCtl() { return plAuto; }, set planeCtl(v) { plAuto = v; }, get throttle() { return thrLever; }, get pin() { return pin; }, planeSim, get altK() { return altK; }, get latD() { return latD; }, FS, version: GAME_NAME, renderer, U, get gearbox() { return gbMode; }, setGearbox, manualShift, get inp() { return inp; }, get msgText() { return $("msg") ? $("msg").textContent : ""; }, PWR, get gripTest() { return gripTest; }, set gripTest(v) { gripTest = v; }, get vSub() { return vSub; }, openPower: () => { openMenu(true, 'vehicle'); vSub = 'power'; vehRow(); }, msg, get msgT() { return msgT ? Math.max(0, msgT - performance.now()) / 1000 : 0; }, get veh() { return veh; }, get state() { return veh; }, rig, T, PH, bus, world, hpMap, evLog, stats, inp, W, audio, editor, TEL, scene,
   get q() { return qName; }, setQ(q) { qName = q; applyQuality(); }, get x() { return veh.p.x; }, get z() { return veh.p.z; }, get y() { return veh.p.y; },
   place(x, z, yaw = 0) { spawn(x, z, yaw); }, teleport(x, z, yaw = 0) { spawn(x, z, yaw); updateWorld(true); }, toBiome(name, yaw = 0) { const p = T.findBiome(name, veh.p.x, veh.p.z); if (p) this.teleport(p.x, p.z, yaw); return p; },
   toS(s, d = 3) { const p = lanePoint(Math.max(0, s), d); spawn(p.x, p.z, p.yaw); camPos.set(veh.p.x - Math.sin(p.yaw) * 10, veh.p.y + 4, veh.p.z - Math.cos(p.yaw) * 10); odoX = veh.p.x; odoZ = veh.p.z; rebase(); odoX = veh.p.x; odoZ = veh.p.z; sCur = Math.max(0, W.project(veh.p.x, veh.p.z).s); W.setFocus(sCur); props.update(sCur); updateWorld(true); return p; },

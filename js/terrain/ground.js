@@ -7,7 +7,7 @@ import { createRoads } from './roads.js';
 
 const SWT = [[0, 0, 0, 1], [0, 0, 0, 1], [0, 0, 0, 0], [1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]; // sand, rock, snow, dirt
 const SO = { h: 0 }, nv = [0, 1, 0], cv = [0, 0, 0];
-class Grid {
+export class Grid {
   constructor(scene, N, step, mat, withTex) {
     const n = this.n = N + 1; this.N = N; this.step = step;
     this.H = new Float32Array(n * n); this.NRM = new Float32Array(n * n * 3); this.COL = new Float32Array(n * n * 3); this.SW = new Float32Array(n * n * 4); this.CW = new Float32Array(n * n); this.TN = new Float32Array(n * n * 3);

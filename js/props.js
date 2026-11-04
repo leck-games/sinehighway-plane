@@ -114,7 +114,7 @@ export function createProps({ scene, T }) {
       const sp = L(...(kind === 'diner' ? [-9.5, -6] : [-9, -12])), py = mesh(faceGeo, bizMat(kind)); // pylon sign by the road, facing oncoming traffic
       py.position.set(sp[0], by + 6.4, sp[1]); py.rotation.set(0, Math.atan2(-PT.tx, -PT.tz), 0); py.scale.set(4.2, 1.3, 1);
       const cols = kind === 'diner' ? [[-4, 0, 4.9], [4, 0, 4.9], [-9.5, -6, 0.4]] : [[0, 5, 5.2], [-5, -3, 0.5], [5, -3, 0.5], [-5, -9, 0.5], [5, -9, 0.5], [-2.2, -6, 0.7], [2.2, -6, 0.7], [-9, -12, 0.4]];
-      for (const [lx, lz, r] of cols) { const q = L(lx, lz); solids.push({ x: q[0], z: q[1], r, y: by }); }
+      for (const [lx, lz, r] of cols) { const q = L(lx, lz); solids.push({ x: q[0], z: q[1], r, y: by, h: 8 }); }
       if (T.queryTrees) for (const t of T.queryTrees(x, z, 22)) T.removeTree(t.id);
       placed.push({ kind, s, x, z, side: dir });
     }

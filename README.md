@@ -1,3 +1,27 @@
+# SineHighway Plane Edition V0.1
+
+**Play:** https://leck-games.github.io/sinehighway-plane/
+
+A fork of SineHighway that adds **planes** and a **far-terrain LOD** that draws 6–15 km of world while you fly.
+Every SineHighway feature (gearbox, manual gears, fullscreen, autopilot, biomes, tuning, sound editor) is still here.
+
+## Planes
+- **P** toggles car / plane; **V** picks the next plane. In the menu, the VEHICLE tab has **CARS / PLANES** sub-tabs.
+- Planes (ported from Sine Rally UI) take off from the road: the road is the runway. Arcade or sim handling, touch stick + throttle slider + rudder, keyboard (W/S throttle, arrows pitch/roll, Q/E rudder, Space brake, Shift boost).
+- Landing on the road (or any flat ground) counts. A crash resets you onto the road after about 2.6 s. The flight camera, aero/engine sound and attitude HUD are included.
+- The world is flyable on both sides of the route. Terrain beyond 1.2 km from the road is soft-capped (`latL` in world.js) so mountains stay sane. At about 9 km from the route a haze thickens and an "EDGE OF THE MAP" warning appears at 11 km.
+
+## Far LOD (js/terrain/farlod.js)
+- Two extra ring-buffer grids built from the same deterministic world math as the near grids: **mid** (48 m cells) and **ultra** (240 m cells). Each one discards fragments inside the next-finer ring, so there is no double surface. Shared vertices have identical heights (tested), and the grids follow the floating origin (`shift`).
+- Biome colours, a forest canopy tint, water, a simplified **road ribbon** (±16 km) and **tree-clump impostors** (instanced cones).
+- Camera far plane and fog follow altitude, with less vertical fog when high up.
+- Range by quality: Low 5.8 km · Med 8.6 km · High 11.5 km · Ultra 15.4 km. The LOD costs 6 draw calls. The whole frame at 1.4 km altitude on Med uses about 29 calls and about 280k tris.
+
+## Tests
+`tools/run-tests.sh` runs everything, including `test-plane.cjs` (takeoff, 1150 m climb, 10 km cruise with rebases, crash reset, road landing, keys, tabs) and `test-farlod.cjs` (range per quality, seamless borders, determinism across rebase, budgets). Screenshots are in `shots/plane_*.png`.
+
+---
+
 # SineHighway V0.3-dev
 
 (Formerly **Sine Rally Route**; the repo moved from `leck-games/sinerally-route` to `leck-games/sinehighway`, and old GitHub links redirect.)

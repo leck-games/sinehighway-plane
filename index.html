@@ -121,6 +121,15 @@ body.uied #msg{animation:none;opacity:1}
 .pw-side{width:300px;flex:none;display:flex;flex-direction:column;gap:6px}.pw-side .pw-read{width:auto}.pw-side .pw-r{grid-template-columns:62px 1fr 64px 24px;gap:4px;font-size:10px}
 .pw-cv{align-self:flex-start}@media (max-width:1000px){.pw-side{width:260px}.pw-read{columns:2;column-gap:8px;font-size:10px;padding:4px 6px}.pw-read .pw-big{font-size:17px}}
 #sndEd .se-row input[type=text]{width:110px;font:900 11px "Arial Black",system-ui;border:2px solid #111;padding:4px}#sndEd .se-named{display:inline-flex;gap:2px}
+#pAtt{position:fixed;left:calc(50% - 30px);top:calc(max(6px,env(safe-area-inset-top)) + 46px);width:210px;height:104px;display:none;pointer-events:none;filter:drop-shadow(3px 3px 0 #1116)}
+#pThr{position:fixed;right:calc(max(22px,env(safe-area-inset-right)) + 186px);bottom:calc(16px + env(safe-area-inset-bottom,0px));width:44px;height:150px;display:none;border:4px solid #111;border-radius:10px;background:#fff3;box-shadow:4px 4px 0 #1118;touch-action:none;overflow:hidden;z-index:4}
+#pThrF{position:absolute;left:0;right:0;bottom:0;height:0;background:linear-gradient(#ff8a1a,#ffd23c)}#pThrV{position:absolute;left:0;right:0;top:4px;text-align:center;font:900 12px "Arial Black",system-ui;color:#fff;-webkit-text-stroke:.8px #111}
+#pThr::after{content:"THR";position:absolute;left:0;right:0;bottom:4px;text-align:center;font:900 10px "Arial Black",system-ui;color:#111}
+#pRud{position:fixed;left:max(12px,env(safe-area-inset-left));bottom:calc(24px + env(safe-area-inset-bottom,0px));display:none;flex-direction:column;gap:10px}
+#pRud .sb{width:52px;height:44px;padding:0;font-size:15px;opacity:.9}#pRud .sb.on{background:#ff6a1a;color:#fff}
+body.plane #pAtt,body.plane #pThr{display:block}body.plane.touch #pRud{display:flex}body.plane #bUnl{display:none!important}body.plane.noab #bBst,body.plane.noab #boost{display:none!important}
+body.plane #carinfo{display:block}body.plane #race{display:none!important}body.ui-none #pAtt{display:none!important}body.ui-none #pThr,body.ui-none #pRud{opacity:0}
+@media (max-height:420px){#pThr{height:130px}}
 </style><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="SH Plane">
 <meta name="theme-color" content="#ff6a1a"><meta name="format-detection" content="telephone=no">
@@ -168,6 +177,7 @@ body.uied .uie{display:block!important}body.uied .uie-f{display:flex!important}b
 <div id="joy"><div id="knob"></div></div>
 <div class="btn" id="bGas">GAS</div><div class="btn" id="bBrk">BRAKE</div><div class="btn" id="bBst">BOOST</div><div class="btn" id="bDrf">DRIFT</div>
 <canvas id="gauge" width="200" height="120"></canvas>
+<canvas id="pAtt" width="210" height="104"></canvas><div id="pThr"><div id="pThrF"></div><div id="pThrV">0</div></div><div id="pRud"><button class="sb" id="pRL">◀R</button><button class="sb" id="pRR">R▶</button></div>
 <button class="sb" id="bUnl">UNLOAD</button>
 <div id="labels"></div><div id="msg"></div><div id="fsHint">Add to Home Screen for true fullscreen <b>✕</b></div><div id="rot">ROTATE TO LANDSCAPE ↻</div>
 <script type="importmap">{"imports":{"three":"./js/three.module.js"}}</script>

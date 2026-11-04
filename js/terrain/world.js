@@ -189,8 +189,10 @@ function mesa(x, z) { return 0.5 + 0.5 * (0.6 * S(x * 0.0047 + 1.3 * S(z * 0.003
 export function clump(x, z) { x += OX; z += OZ; return 0.5 + 0.5 * S(x * 0.0071 + C(z * 0.0053) * 2) * C(z * 0.0083 + S(x * 0.0047)); }
 export function patch(x, z) { x += OX; z += OZ; return 0.5 + 0.5 * S(x * 0.013 + 1.7 * C(z * 0.011)) * C(z * 0.017 + 0.8 * S(x * 0.007)); }
 const BWT = new Float32Array(NB);
+export const latL = av => av < 1200 ? av : 1200 + 1800 * Math.tanh((av - 1200) / 1800); // soft-capped lateral distance (<= 3000)
 function relief(b, X, Z, v, av, side, B) { // height above the local road base for one biome
   const g = sst(12, 80, av), a = n1(X, Z), c = n2(X, Z);
+  av = latL(av); // PLANE EDITION: the lateral valley-wall ramps saturate beyond 1.2 km (flyable world on both sides; identical within 1.2 km of the road)
   switch (b) {
     case 0: return g * (4.5 * a + 1.5 * c) + 0.04 * mx(0, av - 150) * (0.5 + 0.5 * a);
     case 1: { const m = mesa(X, Z), e = sst(60, 150, av), st = 30 * sst(0.56, 0.6, m) + 24 * sst(0.72, 0.75, m) + 14 * sst(0.84, 0.86, m);
@@ -198,7 +200,7 @@ function relief(b, X, Z, v, av, side, B) { // height above the local road base f
     case 2: return g * (12 * a + 4 * c) + 0.12 * mx(0, av - 70) * (0.55 + 0.45 * a);
     case 3: { const r = ridged(X, Z), e = sst(25, 110, av);
       return g * (8 * a + 3 * c) + mn(300, e * (0.55 * (av - 25) * (0.7 + 0.3 * a) + 55 * r * r + 10 * c)); }
-    default: { const sea = side * v; // sea on the side*v > 0 side
+    default: { const sea = mn(A(side * v), latL(A(side * v))) * Math.sign(side * v); // sea on the side*v > 0 side
       if (sea > 0) return -sst(28, 140, sea) * (B + 6 + 0.04 * mx(0, sea - 140)) + g * 2 * c * sst(140, 40, sea);
       return g * (6 * a + 2 * c) + 0.2 * mx(0, -sea - 50) * (0.6 + 0.4 * a); }
   }
